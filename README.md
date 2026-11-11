@@ -14,6 +14,10 @@ npm run dev     # terminal 2: open the Vite loopback URL
 
 Set `STOCKFISH_PATH` when the engine is not on PATH. Pi's SDK reads your existing local Pi credentials/catalog. The backend explicitly selects `openai-codex/gpt-6-luna`; there is no model fallback. Credentials are never sent to the frontend. Missing credentials or model errors appear in chat.
 
+### Shared setup on this machine
+
+The local setup stores Stockfish, Maia3, its model cache, and the Lichess token under `~/.local/share/chess-app/`. In any worktree on this machine, run `npm ci` once, then source `~/.config/chess-app/env` before `npm run server`. This sets the engine paths, Hugging Face cache, and Lichess token; the environment file and token are private. Pi credentials remain in the user's Pi configuration. Other machines need their own setup. Do not commit credentials or print the environment file's expanded values.
+
 ## Behavior
 
 - Legal drag-and-drop and click-to-move, promotion, undo/reset, board flipping.
@@ -39,7 +43,7 @@ Choose **Play Maia3**, your side and an opponent rating, then **New game**. The 
 - Automatic coaching is off by default against Maia3 to avoid generating model requests for every move. Enable the checkbox for automatic Stockfish-backed reviews, or ask chat about any live/historical position. Analysis-board move reviews remain automatic.
 - Opponent play is disabled during offline session replay. Maia3 games themselves are not added to the chat replay format; chat/coaching turns retain existing recording behavior.
 
-Install Maia3 into a separate Python environment and pre-cache its 5M model before use (Python 3.10+; see https://github.com/CSSLab/maia3). The backend uses `MAIA3_PATH` for the `maia3-uci` executable, otherwise the existing `.data/maia3-spike/venv/bin/maia3-uci` if present, otherwise `maia3-uci` on PATH. `HF_HOME` selects the checkpoint cache; absent that setting, the existing spike cache is reused when present. Inference uses `--local-files-only`: it will not download weights during play. Missing installation/cache errors appear beside the board. The initial local setup is already installed in `.data/maia3-spike/` on this machine.
+Install Maia3 into a separate Python environment and pre-cache its 5M model before use (Python 3.10+; see https://github.com/CSSLab/maia3). The backend uses `MAIA3_PATH` for the `maia3-uci` executable, otherwise the existing `.data/maia3-spike/venv/bin/maia3-uci` if present, otherwise `maia3-uci` on PATH. `HF_HOME` selects the checkpoint cache; absent that setting, the existing spike cache is reused when present. Inference uses `--local-files-only`: it will not download weights during play. Missing installation/cache errors appear beside the board. On this machine, the shared setup described above provides Maia3 and its cache across worktrees.
 
 ```
 MAIA3_PATH=/absolute/path/to/venv/bin/maia3-uci HF_HOME=/path/to/cache npm run server
