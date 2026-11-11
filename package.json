@@ -1,0 +1,34 @@
+{
+  "name": "chess-app",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "server": "tsx server/index.ts",
+    "replay": "tsx server/replay.ts",
+    "typecheck:server": "tsc --noEmit --module nodenext --moduleResolution nodenext --target es2022 --skipLibCheck --strict --allowImportingTsExtensions server/index.ts server/stockfish.ts",
+    "build": "tsc --noEmit && vite build",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "^1.5.2",
+    "@sinclair/typebox": "^0.34.52",
+    "chess.js": "^1.4.0",
+    "react": "^19.0.0",
+    "react-chessboard": "^5.0.0",
+    "react-dom": "^19.0.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
+  },
+  "devDependencies": {
+    "@types/mdast": "^4.0.4",
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.0",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.0"
+  }
+}

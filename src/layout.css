@@ -1,0 +1,51 @@
+main{height:100dvh;max-width:1440px;padding:16px 20px;overflow:hidden}
+.workspace{height:100%;grid-template-columns:minmax(0,1fr) minmax(320px,.72fr);gap:24px}
+.board-section{min-height:0;overflow:auto}
+.board-wrap{width:min(100%,calc(100dvh - 170px));margin-inline:auto}
+.board-heading,.chat-heading{margin-bottom:10px;min-height:24px}
+.controls{margin-top:10px}
+.notice{margin-block:8px;font-size:12px}
+aside{position:relative;min-height:0;overflow:hidden;border-left:1px solid #2d3d36;padding-left:20px}
+.usage-strip{display:flex;flex-wrap:wrap;gap:3px 12px;padding:0 0 8px;font-size:10px;color:#a0b4a7;flex-shrink:0}.usage-strip small{width:100%;font-size:9px;color:#7c9385}
+.chat-heading h2{font-size:14px;font-weight:600}
+.badge{font-size:10px;padding:3px 7px;border-color:#3d4b41;color:#9eafa4}
+.chat-messages{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#42594c transparent;padding:2px 8px 12px 0;display:flex;flex-direction:column;gap:0}
+.chat-messages>.muted{font-size:13px;line-height:1.6;max-width:36ch;margin:8px 0}
+.chat-messages .message{flex-shrink:0;background:none;border:0;border-radius:0;padding:12px 0;line-height:1.55;font-size:13px;overflow-wrap:anywhere}
+.chat-messages .message+.message{border-top:1px solid #293b31}
+.message .eyebrow{font-size:9px;letter-spacing:.1em;color:#8ca496}
+.chat-messages .message p{margin:6px 0;font-size:13px;line-height:1.55;color:#d5dfd8}
+.chat-messages .message p:last-child{font-size:13px;margin-bottom:0}
+.message ul,.message ol{padding-left:20px;margin:6px 0}
+.message li{margin:4px 0}
+.message h1,.message h2,.message h3,.message h4{font-size:14px;letter-spacing:0;line-height:1.4;margin:12px 0 6px}
+.markdown-table{overflow-x:auto;margin:8px 0;max-width:100%}.markdown-table table{border-collapse:collapse;font-size:12px;width:100%}.markdown-table th,.markdown-table td{padding:6px 9px;text-align:left;border:1px solid #35483d;white-space:nowrap}.markdown-table th{background:#22332a;font-weight:600}.markdown-table tbody tr:nth-child(even){background:#192720}.message blockquote{margin:8px 0;padding-left:10px;border-left:2px solid #657f6c;color:#adbcaf}
+.message pre{overflow:auto;padding:8px;background:#1a2623;border-radius:5px}
+.message pre code{padding:0}
+.message code{display:inline;font-size:12px;padding:1px 4px}
+.message small{display:block;font-size:10px;margin-top:6px}
+.move-reference{font-size:inherit}
+.chat-footer{flex-shrink:0;margin:0;padding:8px 10px 6px;background:#1b2723;border:1px solid #3b5143;border-radius:9px}
+.chat-footer:focus-within{border-color:#799b85;box-shadow:0 0 0 1px #799b8533}
+.chat-footer textarea{display:block;min-height:34px;max-height:110px;width:100%;resize:none;border:0;outline:0;background:transparent;padding:5px 0;font-size:13px;line-height:20px;border-radius:0}
+.composer-toolbar{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:30px}
+.composer-toolbar span{font-size:10px;color:#8ea697}
+.chat-footer .composer-toolbar button{float:none;margin:0;padding:5px 10px;font-size:11px;border-radius:5px;white-space:nowrap}
+.latest-button{position:absolute;bottom:100px;align-self:center;padding:5px 12px;border-radius:20px;font-size:11px;box-shadow:0 3px 12px #0007}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+@media(max-width:800px){
+ main{padding:10px}
+ .workspace{grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) minmax(0,1fr);gap:12px}
+ .board-wrap{width:min(100%,calc((100dvh - 32px)*.5 - 110px))}
+ .board-heading{font-size:12px;margin-bottom:6px;min-height:20px}
+ .controls{margin-top:6px}
+ .controls button{padding:4px 9px;font-size:11px}
+ .notice{font-size:10px;margin-block:5px;min-height:0}
+ details{font-size:10px}
+ summary{padding:3px 0}
+ aside{padding:10px 0 0;border-left:0;border-top:1px solid #2d3d36}
+ .chat-heading{margin-bottom:2px}
+ .chat-messages .message{padding:8px 0}
+ .chat-footer{padding:5px 9px}
+ .composer-toolbar span{font-size:9px}
+}
