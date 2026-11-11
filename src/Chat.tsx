@@ -56,7 +56,7 @@ export function Chat({ playerColor, moveTurn, fen, moves, setArrows, setActive }
   async function submit(automatic?: MoveTurn) {
     if (running.current || (!automatic && (!input.trim() || queue.length > 0))) return;
     running.current = true;
-    const question = automatic ? `I just played ${automatic.moves.at(-1)}. Briefly review the move and current position using Stockfish. Highlight one useful idea with arrows when appropriate.` : input.trim();
+    const question = automatic ? `The latest move was ${automatic.moves.at(-1)}. Identify which side played it from the history, then briefly review the move and current position using Stockfish. Highlight one useful idea with arrows when appropriate.` : input.trim();
     const snapshot = automatic?.fen ?? fen;
     const snapshotMoves = automatic?.moves ?? moves;
     follow.current = true;
@@ -100,7 +100,7 @@ export function Chat({ playerColor, moveTurn, fen, moves, setArrows, setActive }
       const list = listRef.current;
       if (list) { follow.current = list.scrollHeight - list.clientHeight - list.scrollTop < 48; if (follow.current) setShowLatest(false); }
     }} aria-live="polite" aria-relevant="additions text">
-      {!messages.length && <p className="muted">Ask about the position. I can check Stockfish and illustrate ideas with arrows. Each move gets a brief review, or ask a question anytime.</p>}
+      {!messages.length && <p className="muted">Ask about the position. I can check Stockfish and illustrate ideas with arrows. In analysis mode each move gets a brief review. Against Maia3, automatic coaching is optional; you can ask a question anytime.</p>}
       {messages.map((m,i) => <article key={i} className="message"><span className="eyebrow">{m.role === 'user' ? 'YOU' : 'COMPANION'}</span><Markdown remarkPlugins={[remarkGfm, [remarkMoveLinks, { fen: m.fen, arrows: m.arrows }]]} components={{ table: ({ children }) => <div className="markdown-table"><table>{children}</table></div>, a: ({ href, children }) => {
         const id = href?.startsWith('#annotation-') ? href.slice(12) : href?.startsWith('#') ? href.slice(1) : null;
         const arrow = m.arrows.find(a => a.id === id);

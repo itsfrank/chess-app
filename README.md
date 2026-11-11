@@ -28,6 +28,28 @@ Set `STOCKFISH_PATH` when the engine is not on PATH. Pi's SDK reads your existin
 
 The app is local-only, not hardened for public hosting. A future hosted release needs authentication, per-user credential/session isolation, resource quotas, deployment/static serving, and a Stockfish distribution license review. Model requests send the chat and position to the configured provider.
 
+## Play against Maia3
+
+Choose **Play Maia3**, your side and an opponent rating, then **New game**. The default board remains a free analysis board until you start a game. Settings apply only when starting a new game; changing them does not silently replace a game in progress. Maia3 5M runs locally on CPU in one persistent subprocess, separately from Stockfish. Rating is a human-play style target, not a calibrated competitive rating.
+
+- You can play either color; Maia3 opens automatically when you choose Black. Flip changes orientation, not your playing side.
+- **Take back** returns to your previous decision (removing the opponent reply too). Taking back Maia3's opening pauses it until **Resume Maia3**.
+- **Left / Right arrow keys**, navigation buttons and clickable move history browse the game so far. Earlier positions are read-only; **Return to live game** resumes the live board. Arrow keys retain their normal behavior in text fields and selects. Browsing does not erase moves or request new opponent moves.
+- Reset/new game cancel stale opponent responses. Failures show a retry action without changing the position.
+- Automatic coaching is off by default against Maia3 to avoid generating model requests for every move. Enable the checkbox for automatic Stockfish-backed reviews, or ask chat about any live/historical position. Analysis-board move reviews remain automatic.
+- Opponent play is disabled during offline session replay. Maia3 games themselves are not added to the chat replay format; chat/coaching turns retain existing recording behavior.
+
+Install Maia3 into a separate Python environment and pre-cache its 5M model before use (Python 3.10+; see https://github.com/CSSLab/maia3). The backend uses `MAIA3_PATH` for the `maia3-uci` executable, otherwise the existing `.data/maia3-spike/venv/bin/maia3-uci` if present, otherwise `maia3-uci` on PATH. `HF_HOME` selects the checkpoint cache; absent that setting, the existing spike cache is reused when present. Inference uses `--local-files-only`: it will not download weights during play. Missing installation/cache errors appear beside the board. The initial local setup is already installed in `.data/maia3-spike/` on this machine.
+
+```
+MAIA3_PATH=/absolute/path/to/venv/bin/maia3-uci HF_HOME=/path/to/cache npm run server
+TEST_MAIA3=1 npm test  # exercises the installed Maia3 engine too
+```
+
+Maia3 code is AGPL-3.0. Review code/weight terms before redistribution or public hosting.
+
+Browser workflow testing used real browser clicks, keys and the live CPU engine: complete games as both colors, promotion, takebacks, side/orientation, history navigation, retry, delayed-response reset, and mobile sizing. Local harness, logs, game PGNs in JSON, and screenshots are under `.data/browser-test/` (git-ignored).
+
 ## Lichess move frequencies
 
 `lichess_moves` queries the authenticated Lichess Opening Explorer for the submitted position or hypothetical continuations. It returns the top 12 moves with empirical frequency, sample counts, White wins/draws/Black wins, filters and source URL. Frequencies use all games at the position as denominator, not just returned moves. Defaults: all rating buckets and all time controls; the agent may filter either. Rating buckets extend to the next bucket (e.g. 1600 means 1600–1799).
