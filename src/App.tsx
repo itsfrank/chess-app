@@ -3,6 +3,7 @@ import { Chess, type Square } from 'chess.js';
 import { Chessboard } from 'react-chessboard';
 import { Chat, type Annotation } from './Chat';
 import { Icon } from './Icon';
+import { useAnalysis, AnalysisPanel, EvalBar, analysisArrows } from './Analysis';
 import { legalTargets, needsPromotion, squareCenter, tryMove, type Promotion } from './chess';
 
 
@@ -24,6 +25,7 @@ export function App() {
   const displayGame = reviewing ? new Chess() : game;
   if (reviewing) for (const san of history.slice(0, reviewPly!)) displayGame.move(san);
   const displayFen = displayGame.fen();
+  const analysis = useAnalysis(displayFen);
   const navigate = (direction: number) => {
     const next = Math.max(0, Math.min(game.history().length, (reviewPly ?? game.history().length) + direction));
     setSelected(null); setPending(null); setActive(null);
@@ -101,6 +103,8 @@ export function App() {
   const [notice, setNotice] = useState('Drag a piece or select its starting and destination squares.');
   const [annotationState, setAnnotationState] = useState<{ fen: string; arrows: Annotation[] }>({ fen: '', arrows: [] });
   const annotations = annotationState.arrows;
+  const candidateMoves = analysis.tab === 'engine' ? analysis.engine.data?.moves.map(line => line.san) : analysis.explorer.data?.moves.map(line => line.san);
+  const candidateArrows = analysis.showArrows ? analysisArrows(displayFen, candidateMoves ?? []) : [];
   const visible = displayFen === annotationState.fen;
   const sync = () => { setFen(game.fen()); setSelected(null); setPending(null); setActive(null); };
   const move = (from: Square, to: Square) => {
@@ -140,7 +144,7 @@ export function App() {
         <div className="board-stage"><div className="board-heading"><strong role="status">{reviewing ? `Reviewing · after ply ${reviewPly}` : status}</strong><span>{opponent ? `Maia3 · ${opponent.elo} · You: ${opponent.color}` : 'Analysis · both sides'}</span></div>
         {opponentError && <div className="opponent-error" role="alert">{opponentError} <button onClick={() => setRetry(n => n + 1)}>Retry move</button><button onClick={() => { invalidate(); setPaused(true); setNotice('Game paused. Take back a move or resume when ready.'); }}>Pause</button></div>}
         {opponent && paused && !humanTurn && <button className="resume-game" onClick={() => setPaused(false)}>Resume Maia3</button>}
-        <div className="board-wrap">
+        <div className="board-and-eval"><EvalBar result={analysis.engine} flipped={flipped} /><div className="board-wrap">
           <Chessboard options={{ id: 'review-board', position: displayFen, boardOrientation: flipped ? 'black' : 'white',
             allowDrawingArrows: false, allowDragging: !reviewing && !pending && humanTurn && !thinking && !game.isGameOver(),
             darkSquareStyle: { backgroundColor: '#485466' }, lightSquareStyle: { backgroundColor: '#cbd2da' },
@@ -156,7 +160,16 @@ export function App() {
             squareStyles,
           }} />
           <svg className="annotation-overlay" viewBox="0 0 800 800" aria-hidden="true">
-            <defs>{annotations.map(a => <marker key={a.id} id={`head-${a.id}`} markerWidth="4" markerHeight="4" refX="3" refY="2" orient="auto"><path d="M0,0 L4,2 L0,4 Z" fill={a.color} /></marker>)}</defs>
+            <defs>{[...annotations, ...candidateArrows].map(a => <marker key={a.id} id={`head-${a.id}`} markerWidth="4" markerHeight="4" refX="3" refY="2" orient="auto"><path d="M0,0 L4,2 L0,4 Z" fill={a.color} /></marker>)}</defs>
+            {candidateArrows.map(a => {
+              const [x1, y1] = squareCenter(a.from, flipped); const [x2, y2] = squareCenter(a.to, flipped);
+              const length = Math.hypot(x2 - x1, y2 - y1);
+              // Offset coincident companion and candidate arrows so both remain visible.
+              const overlaps = visible && annotations.some(other => (other.from === a.from && other.to === a.to) || (other.from === a.to && other.to === a.from));
+              const offsetX = overlaps ? -(y2 - y1) / length * 18 : 0;
+              const offsetY = overlaps ? (x2 - x1) / length * 18 : 0;
+              return <line key={a.id} x1={x1 + offsetX} y1={y1 + offsetY} x2={x2 + offsetX - (x2 - x1) / length * 20} y2={y2 + offsetY - (y2 - y1) / length * 20} stroke={a.color} strokeWidth={10} strokeDasharray="1 20" strokeLinecap="round" markerEnd={`url(#head-${a.id})`} opacity={0.95} />;
+            })}
             {visible && annotations.map(a => {
               const [x1, y1] = squareCenter(a.from, flipped);
               const [x2, y2] = squareCenter(a.to, flipped);
@@ -166,7 +179,7 @@ export function App() {
                 opacity={active && active !== a.id ? 0.2 : active === a.id ? 1 : 0.65} />;
             })}
           </svg>
-        </div></div>
+        </div></div></div>
         {pending && <div className="promotion" role="group" aria-label="Choose promotion piece"><strong>Promote to</strong>{(['q', 'r', 'b', 'n'] as Promotion[]).map((piece, i) => <button key={piece} onClick={() => {
           if (tryMove(game, pending.from, pending.to, piece)) { sync(); if (!opponent || autoReview) reviewMove(); setNotice('Pawn promoted.'); }
         }}>{['Queen', 'Rook', 'Bishop', 'Knight'][i]}</button>)}<button onClick={() => setPending(null)}>Cancel</button></div>}
@@ -177,7 +190,7 @@ export function App() {
         <p className="notice" role="status">{game.isGameOver() ? `${status}. Start a new game or use ← / → to explore the moves.` : notice}</p>
         <details><summary>Position details</summary><code>{displayFen}</code><p>{displayGame.history().join(' · ') || 'No moves yet.'}</p></details>
       </section>
-      <Chat playerColor={opponent?.color ?? (flipped ? 'black' : 'white')} moveTurn={moveTurn} fen={displayFen} moves={displayGame.history()} setArrows={(position, arrows) => setAnnotationState({ fen: position, arrows })} setActive={setActive} />
+      <Chat analysisPanel={<AnalysisPanel analysis={analysis} fen={displayFen} />} playerColor={opponent?.color ?? (flipped ? 'black' : 'white')} moveTurn={moveTurn} fen={displayFen} moves={displayGame.history()} setArrows={(position, arrows) => setAnnotationState({ fen: position, arrows })} setActive={setActive} />
     </div>
   </main>;
 }

@@ -1,11 +1,11 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { remarkMoveLinks, type Annotation } from './annotations';
 export type { Annotation } from './annotations';
 type Message = { role: 'user' | 'assistant'; text: string; fen: string; arrows: Annotation[]; error?: string };
 type MoveTurn = { id: number; fen: string; moves: string[] };
-export function Chat({ playerColor, moveTurn, fen, moves, setArrows, setActive }: { playerColor: 'white' | 'black'; moveTurn: MoveTurn | null; fen: string; moves: string[]; setArrows: (fen: string, arrows: Annotation[]) => void; setActive: (id: string | null) => void }) {
+export function Chat({ playerColor, moveTurn, fen, moves, setArrows, setActive, analysisPanel }: { analysisPanel: ReactNode; playerColor: 'white' | 'black'; moveTurn: MoveTurn | null; fen: string; moves: string[]; setArrows: (fen: string, arrows: Annotation[]) => void; setActive: (id: string | null) => void }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [usage, setUsage] = useState({ session: { tokens: 0, cost: 0 }, lifetime: { tokens: 0, cost: 0 } });
   useEffect(() => {
@@ -95,7 +95,7 @@ export function Chat({ playerColor, moveTurn, fen, moves, setArrows, setActive }
     } catch (error) { update(m => ({ ...m, error: error instanceof Error && error.name === 'AbortError' ? 'Stopped.' : String(error) })); }
     finally { running.current = false; setBusy(false); setStatus(''); controller.current = null; }
   }
-  return <aside aria-label="Companion chat"><div className="chat-heading"><h2>Companion</h2><span className="badge">Pi / Stockfish</span></div>
+  return <aside aria-label="Companion chat">{analysisPanel}<div className="chat-heading"><h2>Companion</h2><span className="badge">Pi / Stockfish</span></div>
     <div className="chat-messages" ref={listRef} onScroll={() => {
       const list = listRef.current;
       if (list) { follow.current = list.scrollHeight - list.clientHeight - list.scrollTop < 48; if (follow.current) setShowLatest(false); }

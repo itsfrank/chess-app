@@ -35,6 +35,23 @@ const server = createServer(async (req, res) => {
     return;
   }
   if (req.url === '/api/usage' && req.method === 'GET') { res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }).end(JSON.stringify({ lifetime: replay?.initialLifetime ?? lifetime })); return; }
+  if ((req.url === '/api/analysis' || req.url === '/api/explorer') && req.method === 'POST') {
+    const controller = new AbortController();
+    const disconnect = () => controller.abort();
+    res.on('close', disconnect);
+    try {
+      let raw = '';
+      for await (const chunk of req) { raw += chunk; if (raw.length > 32000) throw new Error('Request too large'); }
+      const body = JSON.parse(raw);
+      if (typeof body.fen !== 'string') throw new Error('Invalid position');
+      const board = new Chess(body.fen);
+      const result = req.url === '/api/analysis' ? await analyze(board.fen(), [], controller.signal) : await explore(board.fen(), {}, controller.signal);
+      if (!res.destroyed) res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }).end(JSON.stringify(result));
+    } catch (error) {
+      if (!res.destroyed) res.writeHead(400, { 'Content-Type': 'application/json' }).end(JSON.stringify({ message: error instanceof Error ? error.message : 'Request failed' }));
+    } finally { res.off('close', disconnect); }
+    return;
+  }
   if (req.url === '/api/opponent' && req.method === 'POST') {
     if (replay) { res.writeHead(409, { 'Content-Type': 'application/json' }).end(JSON.stringify({ message: 'Opponent play is unavailable during offline replay.' })); return; }
     const controller = new AbortController();
