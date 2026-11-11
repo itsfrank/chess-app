@@ -38,7 +38,15 @@ export class MaiaOpponent {
     const local = resolve('.data/maia3-spike/venv/bin/maia3-uci');
     const executable = process.env.MAIA3_PATH || (existsSync(local) ? local : 'maia3-uci');
     const cache = resolve('.data/maia3-spike/huggingface');
-    const child = spawn(executable, ['--model', 'maia3-5m', '--device', 'cpu', '--no-use-amp', '--use-uci-history', '--local-files-only', '--multipv', '1'], { env: { ...process.env, ...(existsSync(cache) && !process.env.HF_HOME ? { HF_HOME: cache } : {}) } });
+    const child = spawn(executable, ['--model', 'maia3-5m', '--device', 'cpu', '--no-use-amp', '--use-uci-history', '--local-files-only', '--multipv', '1'], {
+      env: {
+        ...process.env,
+        // Avoid CPU oversubscription on shared hosts; only constrain Maia3.
+        OMP_NUM_THREADS: '1',
+        MKL_NUM_THREADS: '1',
+        ...(existsSync(cache) && !process.env.HF_HOME ? { HF_HOME: cache } : {}),
+      },
+    });
     this.child = child;
     this.lastError = '';
     const reader = createInterface({ input: child.stdout });

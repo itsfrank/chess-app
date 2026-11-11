@@ -30,7 +30,7 @@ The app is local-only, not hardened for public hosting. A future hosted release 
 
 ## Play against Maia3
 
-Choose **Play Maia3**, your side and an opponent rating, then **New game**. The default board remains a free analysis board until you start a game. Settings apply only when starting a new game; changing them does not silently replace a game in progress. Maia3 5M runs locally on CPU in one persistent subprocess, separately from Stockfish. Rating is a human-play style target, not a calibrated competitive rating.
+Choose **Play Maia3**, your side and an opponent rating, then **New game**. The default board remains a free analysis board until you start a game. Settings apply only when starting a new game; changing them does not silently replace a game in progress. Maia3 5M runs locally on CPU in one persistent subprocess, separately from Stockfish. Its subprocess sets `OMP_NUM_THREADS=1` and `MKL_NUM_THREADS=1` to limit CPU contention on shared hosts; these settings do not affect the backend or Stockfish. Rating is a human-play style target, not a calibrated competitive rating.
 
 - You can play either color; Maia3 opens automatically when you choose Black. Flip changes orientation, not your playing side.
 - **Take back** returns to your previous decision (removing the opponent reply too). Taking back Maia3's opening pauses it until **Resume Maia3**.
