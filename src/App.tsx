@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { Chess, type Square } from 'chess.js';
 import { Chessboard } from 'react-chessboard';
 import { Chat, type Annotation } from './Chat';
+import { Icon } from './Icon';
 import { legalTargets, needsPromotion, squareCenter, tryMove, type Promotion } from './chess';
 
 
@@ -129,20 +130,21 @@ export function App() {
       <section className="board-section" aria-label="Chess workspace">
         <div className="opponent-setup" aria-label="Game setup">
           <div className="setup-fields">
-            <label>Mode<select aria-label="Game mode" value={setupMode} onChange={e => setSetupMode(e.target.value)}><option value="maia">Play Maia3</option><option value="analysis">Analysis board</option></select></label>
-            <label>Your side<select aria-label="Your side" disabled={setupMode !== 'maia'} value={setupColor} onChange={e => setSetupColor(e.target.value as 'white' | 'black')}><option value="white">White</option><option value="black">Black</option></select></label>
-            <label>Opponent rating<select aria-label="Opponent rating" disabled={setupMode !== 'maia'} value={setupElo} onChange={e => setSetupElo(Number(e.target.value))}>{[1000,1200,1500,1800,2000].map(elo => <option key={elo} value={elo}>{elo}</option>)}</select></label>
-            <button onClick={() => { if (!game.history().length || window.confirm('Start a new game? The current board will be cleared.')) startGame(); }}>New game</button>
+            <label><span>Mode</span><select aria-label="Game mode" value={setupMode} onChange={e => setSetupMode(e.target.value)}><option value="maia">Play Maia3</option><option value="analysis">Analysis board</option></select></label>
+            <label><span>Your side</span><select aria-label="Your side" disabled={setupMode !== 'maia'} value={setupColor} onChange={e => setSetupColor(e.target.value as 'white' | 'black')}><option value="white">White</option><option value="black">Black</option></select></label>
+            <label><span>Rating</span><select aria-label="Opponent rating" disabled={setupMode !== 'maia'} value={setupElo} onChange={e => setSetupElo(Number(e.target.value))}>{[1000,1200,1500,1800,2000].map(elo => <option key={elo} value={elo}>{elo} Elo</option>)}</select></label>
+            <button onClick={() => { if (!game.history().length || window.confirm('Start a new game? The current board will be cleared.')) startGame(); }}><Icon name="plus" size={16} />New game</button>
           </div>
-          <small>Maia3 plays human-like moves. Rating is a style target, not a certified strength. Settings apply to a new game.</small>
+          <small title="Maia3 plays human-like moves. Rating is a style target, not a certified strength.">Settings apply to new games · Maia3 rating is a style target</small>
         </div>
-        <div className="board-heading"><strong role="status">{reviewing ? `Reviewing · after ply ${reviewPly}` : status}</strong><span>{opponent ? `Maia3 · ${opponent.elo} · You: ${opponent.color}` : 'Analysis · both sides'}</span></div>
+        <div className="board-stage"><div className="board-heading"><strong role="status">{reviewing ? `Reviewing · after ply ${reviewPly}` : status}</strong><span>{opponent ? `Maia3 · ${opponent.elo} · You: ${opponent.color}` : 'Analysis · both sides'}</span></div>
         {opponentError && <div className="opponent-error" role="alert">{opponentError} <button onClick={() => setRetry(n => n + 1)}>Retry move</button><button onClick={() => { invalidate(); setPaused(true); setNotice('Game paused. Take back a move or resume when ready.'); }}>Pause</button></div>}
         {opponent && paused && !humanTurn && <button className="resume-game" onClick={() => setPaused(false)}>Resume Maia3</button>}
         <div className="board-wrap">
           <Chessboard options={{ id: 'review-board', position: displayFen, boardOrientation: flipped ? 'black' : 'white',
             allowDrawingArrows: false, allowDragging: !reviewing && !pending && humanTurn && !thinking && !game.isGameOver(),
-            darkSquareStyle: { backgroundColor: '#647c74' }, lightSquareStyle: { backgroundColor: '#e2e5d4' },
+            darkSquareStyle: { backgroundColor: '#485466' }, lightSquareStyle: { backgroundColor: '#cbd2da' },
+            darkSquareNotationStyle: { color: '#cbd2da', fontSize: '11px', fontWeight: 500 }, lightSquareNotationStyle: { color: '#485466', fontSize: '11px', fontWeight: 500 },
             canDragPiece: ({ square }) => !!square && !reviewing && !pending && humanTurn && !thinking && game.get(square as Square)?.color === game.turn(),
             onPieceDrop: ({ sourceSquare, targetSquare }) => !pending && !!targetSquare && move(sourceSquare as Square, targetSquare as Square),
             onSquareClick: ({ square }) => {
@@ -164,12 +166,12 @@ export function App() {
                 opacity={active && active !== a.id ? 0.2 : active === a.id ? 1 : 0.65} />;
             })}
           </svg>
-        </div>
+        </div></div>
         {pending && <div className="promotion" role="group" aria-label="Choose promotion piece"><strong>Promote to</strong>{(['q', 'r', 'b', 'n'] as Promotion[]).map((piece, i) => <button key={piece} onClick={() => {
           if (tryMove(game, pending.from, pending.to, piece)) { sync(); if (!opponent || autoReview) reviewMove(); setNotice('Pawn promoted.'); }
         }}>{['Queen', 'Rook', 'Bishop', 'Knight'][i]}</button>)}<button onClick={() => setPending(null)}>Cancel</button></div>}
-        <div className="controls"><button disabled={!game.history().length} onClick={undo}>{opponent ? 'Take back' : 'Undo'}</button><button onClick={() => { if (!game.history().length || window.confirm('Reset the current game?')) { invalidate(); game.reset(); sync(); setPaused(false); setRetry(n => n + 1); setNotice('Starting position restored.'); } }}>Reset</button><button onClick={() => setFlipped(!flipped)}>Flip board</button></div>
-        <div className="history-navigation" aria-label="History navigation"><button aria-label="Previous move" title="Previous move (Left arrow)" disabled={!history.length || reviewPly === 0} onClick={() => navigate(-1)}>←</button><span>{reviewing ? `${reviewPly} / ${history.length} plies · review only` : 'Live position'}</span><button aria-label="Next move" title="Next move (Right arrow)" disabled={!reviewing} onClick={() => navigate(1)}>→</button>{reviewing && <button onClick={() => setReviewPly(null)}>Return to live game</button>}</div>
+        <div className="board-toolbar"><div className="controls"><button disabled={!game.history().length} onClick={undo}><Icon name="undo" size={16} />{opponent ? 'Take back' : 'Undo'}</button><button onClick={() => { if (!game.history().length || window.confirm('Reset the current game?')) { invalidate(); game.reset(); sync(); setPaused(false); setRetry(n => n + 1); setNotice('Starting position restored.'); } }}><Icon name="reset" size={16} />Reset</button><button onClick={() => setFlipped(!flipped)}><Icon name="flip" size={16} />Flip board</button></div>
+        <div className="history-navigation" aria-label="History navigation"><button aria-label="Previous move" title="Previous move (Left arrow)" disabled={!history.length || reviewPly === 0} onClick={() => navigate(-1)}><Icon name="left" /></button><span>{reviewing ? `${reviewPly} / ${history.length} plies · review only` : 'Live position'}</span><button aria-label="Next move" title="Next move (Right arrow)" disabled={!reviewing} onClick={() => navigate(1)}><Icon name="right" /></button>{reviewing && <button onClick={() => setReviewPly(null)}>Return to live game</button>}</div></div>
         {opponent && <label className="review-toggle"><input type="checkbox" checked={autoReview} onChange={e => setAutoReview(e.target.checked)} /> Automatic Stockfish coaching <small>Optional · uses your model subscription</small></label>}
         {!!game.history().length && <div ref={movesList} className="game-moves" aria-label="Move history">{game.history().map((san, i) => <button key={i} aria-current={(reviewPly ?? history.length) === i + 1 ? 'step' : undefined} onClick={() => { setPending(null); setSelected(null); setReviewPly(i + 1 === history.length ? null : i + 1); }}>{i % 2 === 0 ? `${Math.floor(i / 2) + 1}. ` : ''}{san}</button>)}</div>}
         <p className="notice" role="status">{game.isGameOver() ? `${status}. Start a new game or use ← / → to explore the moves.` : notice}</p>

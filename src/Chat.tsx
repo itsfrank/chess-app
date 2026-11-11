@@ -95,14 +95,13 @@ export function Chat({ playerColor, moveTurn, fen, moves, setArrows, setActive }
     } catch (error) { update(m => ({ ...m, error: error instanceof Error && error.name === 'AbortError' ? 'Stopped.' : String(error) })); }
     finally { running.current = false; setBusy(false); setStatus(''); controller.current = null; }
   }
-  return <aside aria-label="Companion chat"><div className="chat-heading"><h2>Companion</h2><span className="badge">Pi · Stockfish</span></div>
-    <div className="usage-strip" title="USD estimates supplied by Pi, not subscription charges. Session means this conversation; lifetime totals are saved on this machine. Zero can mean pricing was unavailable."><span>Session {usageLabel(usage.session)}</span><span>All time {usageLabel(usage.lifetime)}</span><small>Est. USD · not a subscription bill</small></div>
+  return <aside aria-label="Companion chat"><div className="chat-heading"><h2>Companion</h2><span className="badge">Pi / Stockfish</span></div>
     <div className="chat-messages" ref={listRef} onScroll={() => {
       const list = listRef.current;
       if (list) { follow.current = list.scrollHeight - list.clientHeight - list.scrollTop < 48; if (follow.current) setShowLatest(false); }
     }} aria-live="polite" aria-relevant="additions text">
-      {!messages.length && <p className="muted">Ask about the position. I can check Stockfish and illustrate ideas with arrows. In analysis mode each move gets a brief review. Against Maia3, automatic coaching is optional; you can ask a question anytime.</p>}
-      {messages.map((m,i) => <article key={i} className="message"><span className="eyebrow">{m.role === 'user' ? 'YOU' : 'COMPANION'}</span><Markdown remarkPlugins={[remarkGfm, [remarkMoveLinks, { fen: m.fen, arrows: m.arrows }]]} components={{ table: ({ children }) => <div className="markdown-table"><table>{children}</table></div>, a: ({ href, children }) => {
+      {!messages.length && <div className="companion-welcome"><p>Ask about this position.</p><small>Hover a colored move in a reply to highlight its arrow.</small></div>}
+      {messages.map((m,i) => <article key={i} className={`message message-${m.role}`}><span className="eyebrow">{m.role === 'user' ? 'YOU' : 'COMPANION'}</span><Markdown remarkPlugins={[remarkGfm, [remarkMoveLinks, { fen: m.fen, arrows: m.arrows }]]} components={{ table: ({ children }) => <div className="markdown-table"><table>{children}</table></div>, a: ({ href, children }) => {
         const id = href?.startsWith('#annotation-') ? href.slice(12) : href?.startsWith('#') ? href.slice(1) : null;
         const arrow = m.arrows.find(a => a.id === id);
         if (!arrow) return <span>{children}</span>;
@@ -118,7 +117,8 @@ export function Chat({ playerColor, moveTurn, fen, moves, setArrows, setActive }
       <textarea ref={inputRef} id="chat" rows={1} value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => {
         if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void submit(); }
       }} maxLength={8000} placeholder="Ask about this position…" />
-      <div className="composer-toolbar"><span role="status">{[status || 'Enter to send · Shift+Enter for newline', queue.length ? `${queue.length} review(s) queued` : ''].filter(Boolean).join(' · ')}</span>{busy ? <button type="button" onClick={() => controller.current?.abort()}>Stop</button> : <button disabled={!input.trim() || queue.length > 0} type="submit">Send ↑</button>}</div>
+      <div className="composer-toolbar"><span role="status">{[status || '↵ to send · Shift ↵ new line', queue.length ? `${queue.length} review(s) queued` : ''].filter(Boolean).join(' · ')}</span>{busy ? <button type="button" onClick={() => controller.current?.abort()}>Stop</button> : <button disabled={!input.trim() || queue.length > 0} type="submit" aria-label="Send message" title="Send message (Enter)">↵ Enter</button>}</div>
     </form>
+    <div className="usage-strip" title="USD estimates supplied by Pi, not subscription charges. Session means this conversation; lifetime totals are saved on this machine. Zero can mean pricing was unavailable."><span>Session <strong>{usageLabel(usage.session)}</strong></span><span>All time <strong>{usageLabel(usage.lifetime)}</strong></span></div>
   </aside>;
 }
