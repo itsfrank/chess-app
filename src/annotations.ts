@@ -24,6 +24,18 @@ export function remarkMoveLinks(options: { fen: string; arrows: Annotation[] }) 
       const children = node.children as (RootContent | PhrasingContent)[];
       for (let i = 0; i < children.length; i++) {
         const child = children[i];
+        if (child.type === 'link' && child.url.startsWith('#annotation-')) {
+          const label = (nodes: PhrasingContent[]): string => nodes.map(n => 'value' in n ? n.value : 'children' in n ? label(n.children as PhrasingContent[]) : '').join('');
+          const text = label(child.children).trim().replace(/^(?:\d+\s*\.+\s*|[… .]+)/, '');
+          // Explicit model-generated links are not trustworthy either. A SAN label
+          // must resolve to the same legal move as the arrow in this snapshot.
+          if (/^(?:O-O(?:-O)?|[KQRBN]?[a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?)[+#]?$/.test(text)) {
+            const id = moves.get(text.replace(/[+#]$/, ''));
+            if (id) child.url = `#annotation-${id}`;
+            else { children.splice(i, 1, ...child.children); i--; }
+          }
+          continue;
+        }
         if (child.type !== 'text') { walk(child); continue; }
         const parts: PhrasingContent[] = []; let offset = 0;
         // Number/dot prefixes remain ordinary text: 3...Nf6, …Nf6, Nf6+ all match.

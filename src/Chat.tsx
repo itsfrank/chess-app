@@ -84,6 +84,7 @@ export function Chat({ playerColor, moveTurn, fen, moves, setArrows, setActive }
           const event = JSON.parse(line);
           if (event.type === 'conversation') conversation.current = event.id;
           if (event.type === 'text') { update(m => ({ ...m, text: m.text + event.delta })); setStatus('Responding…'); }
+          if (event.type === 'replace_text') update(m => ({ ...m, text: event.text }));
           if (event.type === 'arrows') { update(m => ({ ...m, arrows: event.arrows })); setArrows(snapshot, event.arrows); }
           if (event.type === 'usage') setUsage({ session: event.session, lifetime: event.lifetime });
           if (event.type === 'status') setStatus(event.text);

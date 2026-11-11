@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
-import { Chess } from 'chess.js';
+import { Chess, type Square } from 'chess.js';
 import { Type } from '@sinclair/typebox';
 import { createAgentSession, createExtensionRuntime, SessionManager, SettingsManager, ModelRuntime, defineTool, type ResourceLoader, type AgentSession } from '@earendil-works/pi-coding-agent';
 import { analyze } from './stockfish.ts';
@@ -9,13 +9,15 @@ import { explore, ratings, speeds } from './lichess.ts';
 import { isAllowedOrigin } from './origin.ts';
 import { emptyTotals, loadTotals, saveTotals, type Totals } from './usage.ts';
 import { Recorder, Replay } from './recording.ts';
+import { annotationErrors, repairAnnotations } from './annotation-feedback.ts';
+import type { Annotation } from '../src/annotations.ts';
 const replay = process.env.REPLAY_LOG ? new Replay(process.env.REPLAY_LOG) : undefined;
 const lifetime = loadTotals();
 const modelRuntime = replay ? undefined : await ModelRuntime.create();
 const model = modelRuntime?.getModel('openai-codex', 'gpt-6-luna');
 if (!replay && !model) throw new Error('Pi model openai-codex/gpt-6-luna is unavailable; no fallback configured.');
 
-const instruction = `You are a concise chess companion. The user's message includes an immutable board snapshot. Respond to user questions and automatic move-review requests. Use analyze_position before making engine-evaluation or best-move claims; never invent engine results. The snapshot's playerColor is the user's chosen playing side, not the side to move. In analysis mode it follows board orientation. Address the user from that side's perspective. Automatic reviews may describe either player's latest move; use the history to identify who played it. Scores are from White's perspective. You cannot move the user's pieces. Use set_arrows to illustrate ideas, then link text using [**d4**](#annotation-ID), replacing ID with the actual arrow ID. Use at most 4 arrows. Every arrow you draw must have at least one corresponding explicit move link in your response; link all referenced moves, not just one. Use standard Markdown. For tables, put each row on its own line and include a valid header separator row; never flatten a table into one paragraph. Tools always default to the submitted position. Hypothetical moves use SAN or UCI notation. Arrows need not be legal moves (they can illustrate threats), but must refer to the submitted board. Use lichess_moves when asked about move likelihood/popularity or practical opponent replies. It reports observed frequencies in filtered rated Lichess games, not engine strength or a prediction for this opponent. Always mention sample size and filters when quoting frequencies, and warn on small or empty samples. Do not call it routinely unless relevant. Keep explanations short.`;
+const instruction = `You are a concise chess companion. The user's message includes an immutable board snapshot. Respond to user questions and automatic move-review requests. Use analyze_position before making engine-evaluation or best-move claims; never invent engine results. The snapshot's playerColor is the user's chosen playing side, not the side to move. In analysis mode it follows board orientation. Address the user from that side's perspective. Automatic reviews may describe either player's latest move; use the history to identify who played it. Scores are from White's perspective. You cannot move the user's pieces. Use set_arrows to illustrate ideas, then link text using [**d4**](#annotation-ID), replacing ID with the actual arrow ID. Use at most 4 arrows. Every arrow you draw must have at least one corresponding explicit move link in your response; link all referenced moves, not just one. Use standard Markdown. For tables, put each row on its own line and include a valid header separator row; never flatten a table into one paragraph. Tools always default to the submitted position. Hypothetical moves use SAN or UCI notation. Arrows need not be legal moves (they can illustrate threats), but must refer to the submitted board. A link labeled with a move MUST point to an arrow with that move's exact source and destination squares in the snapshot (for example Black Nf6 from the initial setup is g8 to f6, never d4 to e5). Link space-control or threat arrows using descriptive prose, not an unrelated move label. Draw a separate matching arrow when linking a recommended move. Use lichess_moves when asked about move likelihood/popularity or practical opponent replies. It reports observed frequencies in filtered rated Lichess games, not engine strength or a prediction for this opponent. Always mention sample size and filters when quoting frequencies, and warn on small or empty samples. Do not call it routinely unless relevant. Keep explanations short.`;
 const resources: ResourceLoader = {
   getExtensions: () => ({ extensions: [], errors: [], runtime: createExtensionRuntime() }),
   getSkills: () => ({ skills: [], diagnostics: [] }), getPrompts: () => ({ prompts: [], diagnostics: [] }),
@@ -23,7 +25,7 @@ const resources: ResourceLoader = {
   getSystemPrompt: () => instruction, getSystemPromptSource: () => undefined,
   getAppendSystemPrompt: () => [], getAppendSystemPromptSources: () => [], extendResources: () => {}, reload: async () => {},
 };
-type Conversation = { recorder: Recorder; usage: Totals; session?: AgentSession; busy: boolean; fen: string; emit: (event: object) => void; touched: number };
+type Conversation = { recorder: Recorder; usage: Totals; session?: AgentSession; busy: boolean; fen: string; emit: (event: object) => void; touched: number; arrows?: Annotation[] };
 const conversations = new Map<string, Conversation>();
 const square = Type.String({ pattern: '^[a-h][1-8]$' });
 const palette = { blue: '#60a5fa', purple: '#c084fc', green: '#4ade80', orange: '#fb923c' };
@@ -96,7 +98,7 @@ const server = createServer(async (req, res) => {
           defineTool({ name: 'lichess_moves', label: 'Lichess move frequencies', description: 'Look up empirical move frequencies and game outcomes in rated Lichess games at the submitted position, optionally after hypothetical moves. Defaults to all rating buckets and speeds. Returned frequency is a fraction of ALL games at this position, not just the displayed moves.', parameters: Type.Object({ moves: Type.Optional(Type.Array(Type.String(), { maxItems: 20 })), ratings: Type.Optional(Type.Array(Type.Integer({ enum: ratings }), { minItems: 1, maxItems: 9 })), speeds: Type.Optional(Type.Array(Type.String({ enum: speeds }), { minItems: 1, maxItems: 6 })) }),
             execute: async (_id, args, signal) => { const result = await explore(current.fen, args, signal); current.emit({ type: 'explorer', result }); return { content: [{ type: 'text', text: JSON.stringify(result) }], details: {} }; } }),
           defineTool({ name: 'set_arrows', label: 'Draw arrows', description: 'Replace arrows on the submitted board. Link chat text with #annotation-ID.', parameters: Type.Object({ arrows: Type.Array(Type.Object({ id: Type.String({ pattern: '^[a-zA-Z0-9_-]{1,40}$' }), from: square, to: square, color: Type.Union([Type.Literal('blue'), Type.Literal('purple'), Type.Literal('green'), Type.Literal('orange')]) }), { maxItems: 4 }) }),
-            execute: async (_id, args) => { if (args.arrows.some(a => a.from === a.to) || new Set(args.arrows.map(a => a.id)).size !== args.arrows.length) throw new Error('Arrows require distinct endpoints and unique IDs'); const arrows = args.arrows.map(a => ({ ...a, color: palette[a.color] })); current.emit({ type: 'arrows', arrows }); return { content: [{ type: 'text', text: JSON.stringify(arrows) }], details: {} }; } }),
+            execute: async (_id, args) => { if (args.arrows.some(a => a.from === a.to) || new Set(args.arrows.map(a => a.id)).size !== args.arrows.length) throw new Error('Arrows require distinct endpoints and unique IDs'); const arrows = args.arrows.map(a => ({ ...a, from: a.from as Square, to: a.to as Square, color: palette[a.color] })); current.arrows = arrows; current.emit({ type: 'arrows', arrows }); return { content: [{ type: 'text', text: JSON.stringify(arrows) }], details: {} }; } }),
         ] });
         current.session = session;
         session.setActiveToolsByName(['analyze_position', 'set_arrows', 'lichess_moves']);
@@ -105,6 +107,8 @@ const server = createServer(async (req, res) => {
       }
       if (res.destroyed) return;
       let modelError: string | undefined;
+      current.arrows = [];
+      let responseText = '';
       const unsubscribe = current.session.subscribe(event => {
         // Record finalized model messages, tools, retries and lifecycle; text deltas are recorded as client events.
         if (event.type !== 'message_update') current.recorder.record('agent', event);
@@ -120,12 +124,33 @@ const server = createServer(async (req, res) => {
           }
         }
         if (event.type === 'message_end' && event.message.role === 'assistant' && event.message.stopReason === 'error') modelError = event.message.errorMessage || 'Model request failed';
-        if (event.type === 'message_update' && event.assistantMessageEvent.type === 'text_delta') current.emit({ type: 'text', delta: event.assistantMessageEvent.delta });
+        if (event.type === 'message_update' && event.assistantMessageEvent.type === 'text_delta') {
+          responseText += event.assistantMessageEvent.delta;
+          current.emit({ type: 'text', delta: event.assistantMessageEvent.delta });
+        }
         if (event.type === 'tool_execution_start') current.emit({ type: 'status', text: event.toolName === 'analyze_position' ? 'Checking Stockfish…' : event.toolName === 'lichess_moves' ? 'Checking Lichess move frequencies…' : 'Drawing arrows…' });
       });
       try {
         await current.session.prompt(`Board snapshot: ${JSON.stringify({ fen: body.fen, moves: body.moves, playerColor })}\n\nUser: ${body.message}`);
         if (modelError) throw new Error(modelError);
+        const remaining = await repairAnnotations({
+          errors: () => annotationErrors(body.fen, current.session!.getLastAssistantText() ?? responseText, current.arrows ?? []),
+          cancelled: () => disconnected || res.destroyed,
+          repair: async (feedback, attempt) => {
+            current.recorder.record('annotation_feedback', { attempt, feedback });
+            current.emit({ type: 'replace_text', text: '' });
+            current.emit({ type: 'status', text: 'Correcting annotation mismatch…' });
+            responseText = ''; modelError = undefined;
+            await current.session!.prompt(feedback);
+            if (modelError) throw new Error(modelError);
+          },
+        });
+        if (remaining.length) {
+          current.recorder.record('annotation_validation_failed', { errors: remaining });
+          current.arrows = [];
+          current.emit({ type: 'arrows', arrows: [] });
+          current.emit({ type: 'status', text: 'Could not validate annotations; arrows hidden.' });
+        }
         current.emit({ type: 'done' });
       } finally { unsubscribe(); }
     } finally { res.off('close', disconnect); }

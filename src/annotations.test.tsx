@@ -23,6 +23,14 @@ it('does not infer a link for unrelated positions or ambiguous arrows', () => {
   expect(render('Nf6', new Chess().fen())).not.toContain('<a');
   expect(render('Nf6', board.fen(), [...arrows, { ...arrows[0], id: 'other' }])).not.toContain('<a');
 });
+it('rejects the recorded d4-space arrow mislabeled as 1...Nf6', () => {
+  const position = new Chess(); position.move('d4');
+  const space: Annotation = { id: 'd4-space', from: 'd4', to: 'e5', color: '#4ade80' };
+  const html = render('[**1...Nf6**](#annotation-d4-space)', position.fen(), [space]);
+  expect(html).not.toContain('<a');
+  expect(html).toContain('<strong>1...Nf6</strong>');
+  expect(render('[Nf6](#annotation-d4-space)', position.fen(), [space, arrows[0]])).toContain('href="#annotation-knight"');
+});
 it('renders GFM tables with linked moves, lists and emphasis', () => {
   const html = render('| Move | Eval |\n| --- | ---: |\n| **Nf6** | +0.2 |\n| e6 | +0.3 |\n\n- Develop\n- **Protect** the center');
   expect(html).toContain('<table>'); expect(html).toContain('<thead>'); expect(html).toContain('<tbody>');
