@@ -1,98 +1,156 @@
 # Chess companion
 
-Local-first chess board with on-demand Pi chat, native Stockfish analysis, and colored arrows linked to chat text.
+A local chess board with an AI companion. Play both sides on an analysis board or play against
+Maia3, and ask the companion about any position. It checks Stockfish before making engine claims and
+draws coloured arrows on the board that are linked to the moves in its answer.
+
+Everything runs on your machine. The only network traffic is the chat itself (sent to the model
+provider) and optional Lichess opening-explorer lookups.
+
+## Requirements
+
+- Node.js 22.12 or newer.
+- A native `stockfish` executable on `PATH` (or set `STOCKFISH_PATH`).
+- A Pi login that can use `openai-codex/gpt-6-luna`. The backend uses your existing local Pi
+  credentials; they are never sent to the browser. There is no fallback model.
+- Optional: Maia3 for opponent play and a Lichess token for move frequencies (both below).
 
 ## Run
 
-Use a current Node.js LTS (22.12+ or 24 recommended), a native `stockfish` executable on PATH, and an existing Pi login for `openai-codex/gpt-6-luna`.
-
 ```sh
 npm install
-npm run server  # terminal 1: backend on 127.0.0.1:3001
-npm run dev     # terminal 2: open the Vite loopback URL
+npm run server  # terminal 1: API on 127.0.0.1:3001
+npm run dev     # terminal 2: open the URL Vite prints
 ```
 
-Set `STOCKFISH_PATH` when the engine is not on PATH. Pi's SDK reads your existing local Pi credentials/catalog. The backend explicitly selects `openai-codex/gpt-6-luna`; there is no model fallback. Credentials are never sent to the frontend. Missing credentials or model errors appear in chat.
+Stockfish, Maia3 and the Lichess token are located through the environment variables below.
+
+| Variable         | Purpose                                                              |
+| ---------------- | -------------------------------------------------------------------- |
+| `PORT`           | API port (default 3001; the Vite proxy expects 3001).                |
+| `STOCKFISH_PATH` | Stockfish executable, when it is not on `PATH`.                      |
+| `MAIA3_PATH`     | `maia3-uci` executable.                                              |
+| `HF_HOME`        | Hugging Face cache holding the Maia3 weights.                        |
+| `LICHESS_TOKEN`  | Lichess personal access token for the opening explorer.              |
+| `REPLAY_LOG`     | Serve a recorded session instead of the live model (see **Replay**). |
 
 ### Shared setup on this machine
 
-The local setup stores Stockfish, Maia3, its model cache, and the Lichess token under `~/.local/share/chess-app/`. In any worktree on this machine, run `npm ci` once, then source `~/.config/chess-app/env` before `npm run server`. This sets the engine paths, Hugging Face cache, and Lichess token; the environment file and token are private. Pi credentials remain in the user's Pi configuration. Other machines need their own setup. Do not commit credentials or print the environment file's expanded values.
+The local setup stores Stockfish, Maia3, its model cache, and the Lichess token under
+`~/.local/share/chess-app/`. In any worktree on this machine, run `npm ci` once, then source
+`~/.config/chess-app/env` before `npm run server`. This sets the engine paths, Hugging Face cache, and
+Lichess token; the environment file and token are private. Pi credentials remain in the user's Pi
+configuration. Other machines need their own setup. Do not commit credentials or print the
+environment file's expanded values.
 
-## Behavior
+## Using it
 
-- Legal drag-and-drop and click-to-move, promotion, undo/reset, board flipping.
-- Each legal move (including promotion) queues a brief agent review of that exact position. Undo/reset do not trigger reviews. Chat questions also start agent turns. Reviews run sequentially while you can continue playing and drafting.
-- Pi has three active tools: `analyze_position`, `set_arrows`, and `lichess_moves`. No coding tools or discovered extensions, skills, templates, or context files.
-- Stockfish searches for 1.5 seconds using MultiPV=3, one thread, and 32 MB hash. Results use a complete common depth, White-perspective scores, and short continuations. Fewer legal moves means fewer candidates. Mate scores remain explicit.
-- Agent analysis can apply hypothetical moves without changing your board.
-- Text streams to chat. Colored move links emphasize position-scoped SVG arrows on hover, focus, or tap. Responses remain attached to the submitted position while you keep playing.
-- Stop cancels the frontend request and aborts the active agent/engine operation.
-- Conversations are in memory; restarting the backend clears them. Idle conversations expire after an hour on subsequent requests; limit 10 conversations.
-- Chat shows current-conversation and lifetime tokens/cost. Lifetime totals are atomically saved after each finalized assistant message to `.data/usage.json` and loaded after restarts. This file is ignored by git: preserve it when moving the app. USD values are Pi's reported estimates, not charges against your Codex subscription. Zero may mean model pricing was unavailable. Historical usage from before this feature cannot be recovered.
+**Board.** Drag or click to move; promotion asks for a piece. Undo, reset and flip are below the
+board. The Left/Right arrow keys, the navigation buttons and the move list browse the game so far;
+earlier positions are read-only until you return to the live position.
 
-The app is local-only, not hardened for public hosting. A future hosted release needs authentication, per-user credential/session isolation, resource quotas, deployment/static serving, and a Stockfish distribution license review. Model requests send the chat and position to the configured provider.
+**Analysis.** The bar beside the board shows Stockfish's evaluation of the displayed position from
+White's perspective. The panel above the chat lists the top three engine lines, or on the
+**Explorer** tab the most played Lichess moves; **Show arrows** draws them on the board as dotted
+arrows. This runs for every position you look at and does not use the model.
 
-## Play against Maia3
+**Companion.** Ask a question about whatever position the board is showing, live or historical.
+Answers stream in and stay attached to the position they were asked about. Moves in the answer are
+links: hover, focus or tap one to emphasise its arrow. Typing anywhere on the page continues your
+draft. **Stop** cancels the running turn, including any engine search.
 
-Choose **Play Maia3**, your side and an opponent rating, then **New game**. The default board remains a free analysis board until you start a game. Settings apply only when starting a new game; changing them does not silently replace a game in progress. Maia3 5M runs locally on CPU in one persistent subprocess, separately from Stockfish. Its subprocess sets `OMP_NUM_THREADS=1` and `MKL_NUM_THREADS=1` to limit CPU contention on shared hosts; these settings do not affect the backend or Stockfish. Rating is a human-play style target, not a calibrated competitive rating.
+**Automatic coaching.** With the checkbox on, every move played is queued for a short Stockfish-backed
+review. It is on by default on the analysis board and off by default against Maia3, because each
+review is a model request. Turns run one at a time; questions you ask jump ahead of queued reviews.
 
-- You can play either color; Maia3 opens automatically when you choose Black. Flip changes orientation, not your playing side.
-- **Take back** returns to your previous decision (removing the opponent reply too). Taking back Maia3's opening pauses it until **Resume Maia3**.
-- **Left / Right arrow keys**, navigation buttons and clickable move history browse the game so far. Earlier positions are read-only; **Return to live game** resumes the live board. Arrow keys retain their normal behavior in text fields and selects. Browsing does not erase moves or request new opponent moves.
-- Reset/new game cancel stale opponent responses. Failures show a retry action without changing the position.
-- Automatic coaching is off by default against Maia3 to avoid generating model requests for every move. Enable the checkbox for automatic Stockfish-backed reviews, or ask chat about any live/historical position. Analysis-board move reviews remain automatic.
-- Opponent play is disabled during offline session replay. Maia3 games themselves are not added to the chat replay format; chat/coaching turns retain existing recording behavior.
+**Usage.** The chat header shows tokens and estimated cost for this conversation and for all time.
+Lifetime totals are saved to `.data/usage.json`. The dollar figures are Pi's estimates, not charges
+against a subscription, and zero can mean pricing was unavailable.
 
-Install Maia3 into a separate Python environment and pre-cache its 5M model before use (Python 3.10+; see https://github.com/CSSLab/maia3). The backend uses `MAIA3_PATH` for the `maia3-uci` executable, otherwise the existing `.data/maia3-spike/venv/bin/maia3-uci` if present, otherwise `maia3-uci` on PATH. `HF_HOME` selects the checkpoint cache; absent that setting, the existing spike cache is reused when present. Inference uses `--local-files-only`: it will not download weights during play. Missing installation/cache errors appear beside the board. On this machine, the shared setup described above provides Maia3 and its cache across worktrees.
+Conversations live in backend memory: restarting the backend or reloading the page starts a new one.
+The backend keeps the ten most recently used.
 
-```
-MAIA3_PATH=/absolute/path/to/venv/bin/maia3-uci HF_HOME=/path/to/cache npm run server
-TEST_MAIA3=1 npm test  # exercises the installed Maia3 engine too
-```
+## Playing against Maia3
 
-Maia3 code is AGPL-3.0. Review code/weight terms before redistribution or public hosting.
+Choose **Play Maia3**, a side and a rating, then **New game**. Settings only apply when a new game
+starts. Maia3 (the 5M model) runs on CPU in one persistent subprocess and aims to play like a human of
+the chosen rating; the rating is a style target, not a calibrated strength. Its subprocess is limited
+to one thread (`OMP_NUM_THREADS=1`, `MKL_NUM_THREADS=1`) to avoid CPU contention; this does not affect
+the backend or Stockfish.
 
-Browser workflow testing used real browser clicks, keys and the live CPU engine: complete games as both colors, promotion, takebacks, side/orientation, history navigation, retry, delayed-response reset, and mobile sizing. Local harness, logs, game PGNs in JSON, and screenshots are under `.data/browser-test/` (git-ignored).
+- Maia3 moves first when you choose Black. Flipping the board does not change your side.
+- **Take back** returns to your previous decision, removing Maia3's reply as well. Taking back its
+  opening move pauses it until you press **Resume Maia3**.
+- If Maia3 fails or times out, the position is unchanged and you can retry or pause.
+
+Install Maia3 in its own Python environment (3.10+) and download the 5M model beforehand; see
+<https://github.com/CSSLab/maia3>. The backend runs it with `--local-files-only`, so it never
+downloads weights during play. It looks for the executable in `MAIA3_PATH`, then
+`.data/maia3-spike/venv/bin/maia3-uci`, then `PATH`, and uses `.data/maia3-spike/huggingface` as the
+weights cache unless `HF_HOME` is set.
 
 ## Lichess move frequencies
 
-`lichess_moves` queries the authenticated Lichess Opening Explorer for the submitted position or hypothetical continuations. It returns the top 12 moves with empirical frequency, sample counts, White wins/draws/Black wins, filters and source URL. Frequencies use all games at the position as denominator, not just returned moves. Defaults: all rating buckets and all time controls; the agent may filter either. Rating buckets extend to the next bucket (e.g. 1600 means 1600–1799).
+When asked how popular or likely a move is, the companion can query the Lichess opening explorer. It
+gets the top 12 moves with game counts and results, filtered by rating bucket and time control (all
+of them by default). Frequencies are proportions of every rated game at that position in the sample,
+not predictions for a particular opponent and not engine evaluations.
 
-Configure `LICHESS_TOKEN` in the backend environment or an owner-readable `.data/lichess-token` file. Do not paste credentials into agent chat. The official endpoint returned 401 during integration testing without a token; authenticated access has since been verified successfully. API docs: https://github.com/lichess-org/api/blob/master/doc/specs/tags/openingexplorer/lichess.yaml
+The explorer requires a personal access token: set `LICHESS_TOKEN` or put the token in
+`.data/lichess-token`. Never paste it into the chat. Requests are made one at a time, at least a
+second apart, with a 12-second timeout, and results are cached for an hour. After an HTTP 429 the
+backend stops querying for at least a minute.
 
-Queries are serialized, spaced at least one second apart, cached for an hour (up to 200 entries), and have a 12-second timeout. HTTP 429 pauses requests for at least a minute without automatic retries. Tool inputs/results are recorded, but request headers and tokens are not. Offline session replay never queries Lichess. Database frequencies describe the selected rated sample, not the likelihood of a specific opponent's move or engine strength; missing/small samples must be treated cautiously.
+## Recording and replay
 
-## Recording and deterministic replay
+Every live chat turn is recorded to `.data/sessions/<uuid>.jsonl`, one file per conversation; the
+backend prints the path when a conversation starts. A recording contains the model, system prompt and
+engine settings, each submitted message and position, the agent's finalised messages and tool calls,
+raw engine input/output, and the exact events sent to the browser. It contains no credentials or HTTP
+headers, but it does contain your chat, so treat the files as private. They are not rotated.
 
-Accepted live chat/move-review turns are recorded automatically in `.data/sessions/<uuid>.jsonl`, one file per conversation. The backend prints the path when a conversation starts. Records have a version, monotonic sequence number, and timestamp. They include:
-
-- Session model/system prompt and engine settings.
-- Submitted messages, FENs and move history.
-- Finalized agent messages (including tool calls, reasoning when supplied, and usage), tool results, retry/lifecycle events.
-- Raw UCI input/output/stderr and the complete ordered frontend event stream.
-- Errors, disconnect markers and turn completion.
-
-No HTTP headers, credential files or authorization tokens are recorded. Chat, model reasoning and board history **are private data**: recordings are local, git-ignored, owner-readable and not automatically rotated. Delete unwanted recordings or copy a reviewed fixture into your test directory. Existing sessions from before recording was enabled cannot be recovered.
-
-To replay through the existing frontend, stop the live backend and run:
+To replay a recording through the real frontend without calling the model:
 
 ```sh
 npm run replay -- .data/sessions/<uuid>.jsonl
 ```
 
-Keep Vite running and refresh the app to start a fresh frontend conversation. Reproduce the same sequence of moves and messages. Each request must match the recorded message, FEN and move history exactly; a mismatch fails without consuming the expected turn. Conversation IDs in requests are ignored during replay. All recorded text chunks, arrows, analyses, errors and usage events are returned in their original order. Requests make **no model/engine calls**, and recorded usage does **not** increment lifetime totals. Restart replay to rewind.
+Reload the app and repeat the same moves and messages. Each request must match the recorded message,
+position and move history exactly; a mismatch is reported and does not consume the turn. Events come
+back in their original order, immediately rather than with the original timing. Replayed usage is not
+added to lifetime totals, and opponent play is unavailable; the analysis panel still works. Restart the replay server to rewind.
+Recordings with an interrupted turn are rejected.
 
-`PORT=3002 npm run replay -- <file>` runs a separate replay API for HTTP tests without replacing the live backend. `REPLAY_LOG=<file> npm run server` is equivalent. In-process tests can use `Replay.next(input)` from `server/recording.ts`.
-
-Scope: this is deterministic **API event playback**, not a new model run, Pi conversation resumption, a browser-action recorder, or a reproduction of original wall-clock delays. Playback emits immediately. Incomplete/disconnected recordings are rejected rather than replayed as if complete; raw records remain available for debugging. Standalone board navigation without a submitted review/question isn't logged separately.
-
-## Checks
+## Development
 
 ```sh
-npm run build
-npm run typecheck:server
-npm test
-TEST_STOCKFISH=1 npm test  # includes the installed native engine integration test
+npm run check        # type-check, lint, format check and unit tests
+npm run format       # apply Prettier
+npm run build        # production build of the frontend
+TEST_STOCKFISH=1 TEST_MAIA3=1 npm test   # also exercise the installed engines
 ```
 
-Browser interaction was manually checked by the user for the initial board spike. Pi + Stockfish + arrows + streamed text were checked through the HTTP API; the integrated chat has not been browser-automated.
+```
+shared/   Used by both sides: the wire protocol, SAN recognition and the arrow palette
+server/   Local HTTP API
+  index.ts      startup and shutdown        app.ts         routing
+  chat.ts       conversations and turns     tools.ts       the agent's three tools
+  stockfish.ts  analysis engine             opponent.ts    Maia3 subprocess
+  lichess.ts    opening explorer            recording.ts   session recording and replay
+src/      React frontend
+  App.tsx       game state and layout       hooks/         chat queue, opponent, analysis
+  components/   board, chat, analysis panel annotations.ts move links in rendered Markdown
+  style.css     appearance                  layout.css     sizing and breakpoints
+docs/design/  Redesign screenshots and a script that generates a synthetic replay fixture
+```
+
+The agent can only use `analyze_position`, `set_arrows` and `lichess_moves`; the backend refuses to
+run a session with any other tool active. The model's move links are never trusted: the backend asks
+it to correct a link that points at the wrong arrow (at most twice, then hides the arrows), and the
+frontend re-points or unlinks anything that still does not match.
+
+## Limits and licences
+
+The API binds to loopback and rejects requests from non-local web origins, but it is not hardened for
+hosting: there is no authentication, per-user isolation or quota. Maia3 is AGPL-3.0 and Stockfish is
+GPL-3.0; review both, and the Maia3 weight terms, before redistributing or hosting this.

@@ -1,6 +1,6 @@
 @font-face {
   font-family: Manrope;
-  src: url("/fonts/manrope-variable.ttf") format("truetype");
+  src: url('/fonts/manrope-variable.ttf') format('truetype');
   font-weight: 200 800;
   font-display: swap;
 }
@@ -20,7 +20,7 @@
   --accent: #28b9e8;
   --mint: #28cba2;
   --radius: 0px;
-  --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --mono: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
 }
 * {
   box-sizing: border-box;
@@ -187,7 +187,7 @@ summary:focus-visible {
   font-weight: 500;
 }
 .board-heading strong:before {
-  content: "";
+  content: '';
   width: 7px;
   height: 7px;
   background: #d9d8cf;
@@ -504,7 +504,7 @@ details p {
   padding-top: 18px;
 }
 .chat-footer:before {
-  content: ">_";
+  content: '>_';
   align-self: center;
   grid-row: 1;
   grid-column: 1;
@@ -543,10 +543,14 @@ details p {
   color: var(--subtle);
   font: 9px/1.5 var(--mono);
 }
-.composer-toolbar button {
+.composer-actions {
   grid-column: 3;
   grid-row: 1;
   align-self: center;
+  display: flex;
+  gap: 6px;
+}
+.composer-toolbar button {
   min-height: 28px;
   padding: 4px 7px;
   color: var(--accent);
