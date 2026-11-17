@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useRef } from 'react';
+import { Fragment, useEffect, useEffectEvent, useRef } from 'react';
 import { Icon } from './Icon';
 
 const EDITABLE = 'input, textarea, select, [contenteditable="true"]';
@@ -25,7 +25,15 @@ export function HistoryNavigation({ moves, ply, onSelect }: Props) {
   }, []);
 
   return (
-    <div className="history-navigation" aria-label="History navigation">
+    <div className="history-navigation" role="group" aria-label="History navigation">
+      <button
+        aria-label="Start of game"
+        title="Start of game"
+        disabled={ply === 0}
+        onClick={() => onSelect(0)}
+      >
+        <Icon name="first" />
+      </button>
       <button
         aria-label="Previous move"
         title="Previous move (Left arrow)"
@@ -34,7 +42,12 @@ export function HistoryNavigation({ moves, ply, onSelect }: Props) {
       >
         <Icon name="left" />
       </button>
-      <span>{live ? 'Live position' : `${ply} / ${moves.length} plies · review only`}</span>
+      <span
+        className={live ? undefined : 'reviewing'}
+        title={live ? 'Live position' : 'Reviewing an earlier position'}
+      >
+        {ply} / {moves.length}
+      </span>
       <button
         aria-label="Next move"
         title="Next move (Right arrow)"
@@ -43,12 +56,19 @@ export function HistoryNavigation({ moves, ply, onSelect }: Props) {
       >
         <Icon name="right" />
       </button>
-      {!live && <button onClick={() => onSelect(moves.length)}>Return to live game</button>}
+      <button
+        aria-label="Return to live game"
+        title="Return to live game"
+        disabled={live}
+        onClick={() => onSelect(moves.length)}
+      >
+        <Icon name="last" />
+      </button>
     </div>
   );
 }
 
-/** The moves played so far; selecting one shows the position after it. */
+/** The moves played so far as a scoresheet; selecting one shows the position after it. */
 export function MoveList({ moves, ply, onSelect }: Props) {
   const live = ply === moves.length;
   const list = useRef<HTMLDivElement>(null);
@@ -61,19 +81,26 @@ export function MoveList({ moves, ply, onSelect }: Props) {
     else if (current) element.scrollTop = current.offsetTop - element.offsetTop;
   }, [moves, ply, live]);
 
-  if (!moves.length) return null;
   return (
-    <div ref={list} className="game-moves" aria-label="Move history">
-      {moves.map((san, index) => (
-        <button
-          key={index}
-          aria-current={ply === index + 1 ? 'step' : undefined}
-          onClick={() => onSelect(index + 1)}
-        >
-          {index % 2 === 0 && `${index / 2 + 1}. `}
-          {san}
-        </button>
-      ))}
-    </div>
+    <aside className="move-list" aria-label="Move history">
+      <h2 className="label">Moves</h2>
+      {moves.length ? (
+        <div ref={list} className="move-rows">
+          {moves.map((san, index) => (
+            <Fragment key={index}>
+              {index % 2 === 0 && <span>{index / 2 + 1}</span>}
+              <button
+                aria-current={ply === index + 1 ? 'step' : undefined}
+                onClick={() => onSelect(index + 1)}
+              >
+                {san}
+              </button>
+            </Fragment>
+          ))}
+        </div>
+      ) : (
+        <p>No moves yet.</p>
+      )}
+    </aside>
   );
 }

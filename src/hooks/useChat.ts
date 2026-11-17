@@ -5,6 +5,8 @@ import { fetchLifetimeUsage, streamChat } from '../api';
 export type Message = {
   id: number;
   role: 'user' | 'assistant';
+  /** Whether the turn was typed by the user or is an automatic move review. */
+  kind: 'question' | 'review';
   text: string;
   /** The position this message is about; its arrows only make sense there. */
   fen: string;
@@ -67,8 +69,8 @@ export function useChat({
       );
     setMessages(previous => [
       ...previous,
-      { id: questionId, role: 'user', text: turn.label, fen, arrows: [] },
-      { id: answerId, role: 'assistant', text: '', fen, arrows: [] },
+      { id: questionId, role: 'user', kind: turn.kind, text: turn.label, fen, arrows: [] },
+      { id: answerId, role: 'assistant', kind: turn.kind, text: '', fen, arrows: [] },
     ]);
     setStatus('Thinking…');
     onArrows(fen, []);

@@ -10,9 +10,9 @@ const PROMOTIONS: [Promotion, string][] = [
   ['b', 'Bishop'],
   ['n', 'Knight'],
 ];
-const LAST_MOVE: CSSProperties = { backgroundImage: 'linear-gradient(#efd85b66, #efd85b66)' };
-const DARK = '#485466';
-const LIGHT = '#cbd2da';
+const LAST_MOVE: CSSProperties = { backgroundImage: 'linear-gradient(#d6aa3c61, #d6aa3c61)' };
+const DARK = '#b5a688';
+const LIGHT = '#e6ddc9';
 const notation = (color: string): CSSProperties => ({ color, fontSize: '11px', fontWeight: 500 });
 const ARROW_INSET = 20;
 /** Sideways shift that keeps a candidate arrow visible beside a companion arrow on the same squares. */
@@ -59,10 +59,10 @@ export function Board(props: {
   const lastMove = position.history({ verbose: true }).at(-1);
   if (lastMove) squareStyles[lastMove.from] = squareStyles[lastMove.to] = LAST_MOVE;
   for (const square of targets) {
-    squareStyles[square] = { ...squareStyles[square], boxShadow: 'inset 0 0 0 5px #d4b96999' };
+    squareStyles[square] = { ...squareStyles[square], boxShadow: 'inset 0 0 0 5px #6b5a3399' };
   }
   if (selection) {
-    squareStyles[selection.from] = { ...squareStyles[selection.from], backgroundColor: '#d4b969' };
+    squareStyles[selection.from] = { ...squareStyles[selection.from], backgroundColor: '#d9b95c' };
   }
 
   return (
@@ -195,8 +195,8 @@ function ArrowOverlay(props: {
           <line
             key={arrow.id}
             {...geometry(arrow)}
-            strokeWidth={isActive ? 14 : 9}
-            opacity={isActive ? 1 : active ? 0.2 : 0.65}
+            strokeWidth={isActive ? 15 : 12}
+            opacity={isActive ? 1 : active ? 0.22 : 0.86}
           />
         );
       })}

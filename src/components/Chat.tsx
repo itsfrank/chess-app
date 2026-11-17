@@ -1,5 +1,6 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { MAX_MESSAGE_LENGTH, type Totals } from '../../shared/protocol';
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { MAX_MESSAGE_LENGTH } from '../../shared/protocol';
+import type { PositionInfo } from '../chess';
 import type { ChatState } from '../hooks/useChat';
 import { Message, type Highlight } from './Message';
 
@@ -7,23 +8,31 @@ const EDITABLE = 'input, textarea, select, [contenteditable="true"]';
 const MAX_INPUT_HEIGHT = 110;
 /** Within this many pixels of the bottom, the list keeps following new text. */
 const FOLLOW_THRESHOLD = 48;
-const USAGE_HELP =
-  'USD estimates supplied by Pi, not subscription charges. Session means this conversation; lifetime totals are saved on this machine. Zero can mean pricing was unavailable.';
-
-const usageLabel = (totals: Totals) =>
-  `${totals.tokens.toLocaleString()} tok · $${totals.cost.toFixed(4)}`;
+const COACH_HELP = 'Reviews every move with Stockfish. Each review uses your model subscription.';
 
 export function Chat(props: {
   chat: ChatState;
   /** Shown above the conversation. */
   analysisPanel: ReactNode;
-  /** The position on the board; messages about other positions are marked and their links disabled. */
+  /** The position on the board; messages about other positions are dimmed and their links disabled. */
   fen: string;
+  /** The positions of the current game, used to head each exchange with the move it follows. */
+  positions: Map<string, PositionInfo>;
+  /** Shows the position after `ply` half-moves on the board. */
+  onSelectPly: (ply: number) => void;
+  /** Whether every move is reviewed automatically. */
+  coach: boolean;
+  onCoach: (coach: boolean) => void;
   onAsk: (message: string) => void;
   onHighlight: Highlight;
 }) {
-  const { chat, analysisPanel, fen, onAsk, onHighlight } = props;
-  const { messages, usage, status, busy, queued } = chat;
+  const { chat, analysisPanel, fen, positions, onSelectPly, coach, onCoach, onAsk, onHighlight } =
+    props;
+  const { status, busy, queued } = chat;
+  // A review's own heading already names the move, so its "Played …" line would only repeat it.
+  const messages = chat.messages.filter(
+    message => message.role === 'assistant' || message.kind === 'question',
+  );
   const [input, setInput] = useState('');
   /** Whether the list is scrolled to the end and should stay there as text streams in. */
   const [following, setFollowing] = useState(true);
@@ -73,14 +82,9 @@ export function Chat(props: {
     inputRef.current?.focus();
   };
 
-  const hint = status || '↵ to send · Shift ↵ new line';
   return (
-    <aside aria-label="Companion chat">
+    <aside className="companion" aria-label="Companion">
       {analysisPanel}
-      <div className="chat-heading">
-        <h2>Companion</h2>
-        <span className="badge">Pi / Stockfish</span>
-      </div>
       <div
         className="chat-messages"
         ref={listRef}
@@ -97,14 +101,27 @@ export function Chat(props: {
             <small>Hover a colored move in a reply to highlight its arrow.</small>
           </div>
         )}
-        {messages.map(message => (
-          <Message
-            key={message.id}
-            message={message}
-            current={message.fen === fen}
-            onHighlight={onHighlight}
-          />
-        ))}
+        {messages.map((message, index) => {
+          const position = positions.get(message.fen);
+          const current = message.fen === fen;
+          return (
+            <Fragment key={message.id}>
+              {message.fen !== messages[index - 1]?.fen && (
+                <h3 className="position-heading">
+                  <button
+                    disabled={!position || current}
+                    title={position && !current ? 'Show this position on the board' : undefined}
+                    onClick={() => position && onSelectPly(position.ply)}
+                  >
+                    {position?.label ?? 'Another line'}
+                  </button>
+                  {current && <span className="label">On the board</span>}
+                </h3>
+              )}
+              <Message message={message} current={current} onHighlight={onHighlight} />
+            </Fragment>
+          );
+        })}
       </div>
       {!following && (
         <button className="latest-button" onClick={() => setFollowing(true)}>
@@ -112,7 +129,7 @@ export function Chat(props: {
         </button>
       )}
       <form
-        className="chat-footer"
+        className="composer"
         onSubmit={event => {
           event.preventDefault();
           submit();
@@ -121,47 +138,48 @@ export function Chat(props: {
         <label className="sr-only" htmlFor="chat">
           Message the companion
         </label>
-        <textarea
-          ref={inputRef}
-          id="chat"
-          rows={1}
-          value={input}
-          maxLength={MAX_MESSAGE_LENGTH}
-          placeholder="Ask about this position…"
-          onChange={event => setInput(event.target.value)}
-          onKeyDown={event => {
-            if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
-            event.preventDefault();
-            submit();
-          }}
-        />
-        <div className="composer-toolbar">
-          <span role="status">{queued ? `${hint} · ${queued} queued` : hint}</span>
-          <div className="composer-actions">
-            {busy && (
-              <button type="button" onClick={chat.stop}>
-                Stop
-              </button>
-            )}
-            <button
-              type="submit"
-              disabled={!input.trim()}
-              aria-label="Send message"
-              title="Send message (Enter)"
-            >
-              ↵ Enter
+        <div className="composer-field">
+          <textarea
+            ref={inputRef}
+            id="chat"
+            rows={1}
+            value={input}
+            maxLength={MAX_MESSAGE_LENGTH}
+            placeholder="Ask about this position…"
+            onChange={event => setInput(event.target.value)}
+            onKeyDown={event => {
+              if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
+              event.preventDefault();
+              submit();
+            }}
+          />
+          <button
+            type="submit"
+            className="label"
+            disabled={!input.trim()}
+            title="Send message (Enter) · Shift+Enter for a new line"
+          >
+            ↵ Send
+          </button>
+        </div>
+        <div className="composer-footer">
+          <label className="switch-label" title={COACH_HELP}>
+            <input
+              type="checkbox"
+              className="switch"
+              checked={coach}
+              onChange={event => onCoach(event.target.checked)}
+            />
+            Coach every move
+          </label>
+          <span role="status">{queued ? `${status} · ${queued} queued` : status}</span>
+          {busy && (
+            <button type="button" onClick={chat.stop}>
+              Stop
             </button>
-          </div>
+          )}
         </div>
       </form>
-      <div className="usage-strip" title={USAGE_HELP}>
-        <span>
-          Session <strong>{usageLabel(usage.session)}</strong>
-        </span>
-        <span>
-          All time <strong>{usageLabel(usage.lifetime)}</strong>
-        </span>
-      </div>
     </aside>
   );
 }

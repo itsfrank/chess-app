@@ -63,8 +63,8 @@ export const Message = memo(function Message(props: {
   );
 
   return (
-    <article className={`message message-${message.role}`}>
-      <span className="eyebrow">{message.role === 'user' ? 'YOU' : 'COMPANION'}</span>
+    <article className={`message message-${message.role}${current ? '' : ' past'}`}>
+      {message.role === 'user' && <span className="label">You</span>}
       <Markdown remarkPlugins={plugins} components={components}>
         {message.text}
       </Markdown>
@@ -73,7 +73,6 @@ export const Message = memo(function Message(props: {
           {message.error}
         </p>
       )}
-      {!current && <small className="muted">Discusses an earlier position.</small>}
     </article>
   );
 });

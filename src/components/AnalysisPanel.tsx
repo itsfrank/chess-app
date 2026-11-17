@@ -8,6 +8,14 @@ const TABS: [AnalysisTab, string][] = [
 ];
 const SHOWN_LINES = lineColors.length;
 
+/** The engine's evaluation as short text: a score, a result once the game is decided, or a dash. */
+export function evalLabel(result: PositionResult<Analysis>): string {
+  const score = result.data?.evaluation;
+  if (!score) return '—';
+  if (score.type === 'mate' && score.value === 0) return score.winner === 'white' ? '1–0' : '0–1';
+  return scoreText(score);
+}
+
 /** Vertical bar beside the board showing the engine's evaluation from White's perspective. */
 export function EvalBar({
   result,
@@ -17,14 +25,6 @@ export function EvalBar({
   flipped: boolean;
 }) {
   const score = result.data?.evaluation;
-  const decided = score?.type === 'mate' && score.value === 0;
-  const label = !score
-    ? '—'
-    : decided
-      ? score.winner === 'white'
-        ? '1–0'
-        : '0–1'
-      : scoreText(score);
   const description = score ? `White evaluation: ${scoreText(score)}` : 'Evaluation unavailable';
   return (
     <div className="eval-bar" role="img" aria-label={description} title={description}>
@@ -33,7 +33,6 @@ export function EvalBar({
         className="eval-white"
         style={{ height: `${whiteShare(score)}%`, [flipped ? 'top' : 'bottom']: 0 }}
       />
-      <span className={flipped ? 'eval-label flipped' : 'eval-label'}>{label}</span>
     </div>
   );
 }
@@ -64,18 +63,7 @@ export function AnalysisPanel({ analysis, fen }: { analysis: AnalysisState; fen:
             {title}
           </button>
         ))}
-        <span>{source}</span>
-      </div>
-      <div className="analysis-options">
-        <span>{tab === 'engine' ? 'Top engine lines' : 'Most played moves'}</span>
-        <label>
-          <input
-            type="checkbox"
-            checked={showArrows}
-            onChange={event => setShowArrows(event.target.checked)}
-          />{' '}
-          Show arrows
-        </label>
+        <span className="label">{source}</span>
       </div>
       <div
         className="analysis-body"
@@ -97,6 +85,15 @@ export function AnalysisPanel({ analysis, fen }: { analysis: AnalysisState; fen:
           <ExplorerMoves explorer={explorer.data!} />
         )}
       </div>
+      <label className="switch-label">
+        <input
+          type="checkbox"
+          className="switch"
+          checked={showArrows}
+          onChange={event => setShowArrows(event.target.checked)}
+        />
+        Show arrows
+      </label>
     </section>
   );
 }
@@ -106,7 +103,7 @@ function EngineLines({ fen, analysis }: { fen: string; analysis: Analysis }) {
     return <div className="analysis-message">Game over · no legal moves</div>;
   return analysis.moves.slice(0, SHOWN_LINES).map((line, index) => (
     <div className="analysis-line engine-line" key={index}>
-      <i style={{ background: lineColors[index] }} aria-hidden="true" />
+      <i className="dot" style={{ background: lineColors[index] }} aria-hidden="true" />
       <b>{scoreText(line.evaluation)}</b>
       <span>
         {formatLine(fen, line.continuation).map((move, ply) => (
@@ -126,9 +123,12 @@ function ExplorerMoves({ explorer }: { explorer: ExplorerResult }) {
       {explorer.moves.length ? (
         explorer.moves.slice(0, SHOWN_LINES).map((move, index) => (
           <div className="analysis-line explorer-line" key={move.san}>
-            <i style={{ background: lineColors[index] }} aria-hidden="true" />
+            <i className="dot" style={{ background: lineColors[index] }} aria-hidden="true" />
             <b>{move.san}</b>
-            <span>{move.games.toLocaleString()} games</span>
+            <span className="frequency-bar" aria-hidden="true">
+              <i style={{ width: `${(move.frequency ?? 0) * 100}%` }} />
+            </span>
+            <span>{move.games.toLocaleString()}</span>
             <strong>
               {move.frequency === null ? '—' : `${(move.frequency * 100).toFixed(1)}%`}
             </strong>

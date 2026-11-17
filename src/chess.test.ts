@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Chess } from 'chess.js';
 import {
+  gamePositions,
   gameResult,
   legalTargets,
   needsPromotion,
@@ -52,5 +53,16 @@ describe('board rules', () => {
     expect(gameResult(new Chess('7k/8/6K1/8/8/8/8/8 b - - 0 1'))).toBe(
       'Draw · Insufficient material',
     );
+  });
+});
+
+describe('game positions', () => {
+  it('labels every position with the move that reached it', () => {
+    const positions = gamePositions(['e4', 'e5', 'Nf3']);
+    expect(positions.get(new Chess().fen())).toEqual({ ply: 0, label: 'Starting position' });
+    expect(positions.get(replay(['e4']).fen())).toEqual({ ply: 1, label: '1. e4' });
+    expect(positions.get(replay(['e4', 'e5']).fen())).toEqual({ ply: 2, label: '1… e5' });
+    expect(positions.get(replay(['e4', 'e5', 'Nf3']).fen())).toEqual({ ply: 3, label: '2. Nf3' });
+    expect(positions.size).toBe(4);
   });
 });

@@ -45,9 +45,10 @@ environment file's expanded values.
 
 ## Using it
 
-**Board.** Drag or click to move; promotion asks for a piece. Undo, reset and flip are below the
-board. The Left/Right arrow keys, the navigation buttons and the move list browse the game so far;
-earlier positions are read-only until you return to the live position.
+**Board.** Drag or click to move; promotion asks for a piece. Undo, flip and **New game** are below
+the board. The Left/Right arrow keys and the navigation buttons browse the game so far; the chevron in
+the bottom-left corner opens the move list. Earlier positions are read-only until you return to the
+live position. The strip along the bottom shows the displayed position's FEN.
 
 **Analysis.** The bar beside the board shows Stockfish's evaluation of the displayed position from
 White's perspective. The panel above the chat lists the top three engine lines, or on the
@@ -55,15 +56,16 @@ White's perspective. The panel above the chat lists the top three engine lines, 
 arrows. This runs for every position you look at and does not use the model.
 
 **Companion.** Ask a question about whatever position the board is showing, live or historical.
-Answers stream in and stay attached to the position they were asked about. Moves in the answer are
+Answers stream in under a heading naming the move they follow; click a heading to return to that
+position. Moves in the answer are
 links: hover, focus or tap one to emphasise its arrow. Typing anywhere on the page continues your
 draft. **Stop** cancels the running turn, including any engine search.
 
-**Automatic coaching.** With the checkbox on, every move played is queued for a short Stockfish-backed
+**Automatic coaching.** With **Coach every move** on, every move played is queued for a short Stockfish-backed
 review. It is on by default on the analysis board and off by default against Maia3, because each
 review is a model request. Turns run one at a time; questions you ask jump ahead of queued reviews.
 
-**Usage.** The chat header shows tokens and estimated cost for this conversation and for all time.
+**Usage.** The strip along the bottom shows tokens and estimated cost for this conversation and for all time.
 Lifetime totals are saved to `.data/usage.json`. The dollar figures are Pi's estimates, not charges
 against a subscription, and zero can mean pricing was unavailable.
 
@@ -72,8 +74,8 @@ The backend keeps the ten most recently used.
 
 ## Playing against Maia3
 
-Choose **Play Maia3**, a side and a rating, then **New game**. Settings only apply when a new game
-starts. Maia3 (the 5M model) runs on CPU in one persistent subprocess and aims to play like a human of
+Press **New game**, choose **Play Maia3**, a side and a rating, then **Start game**. The choices are
+remembered, so **New game** then **Start game** restarts with the same setup. Maia3 (the 5M model) runs on CPU in one persistent subprocess and aims to play like a human of
 the chosen rating; the rating is a style target, not a calibrated strength. Its subprocess is limited
 to one thread (`OMP_NUM_THREADS=1`, `MKL_NUM_THREADS=1`) to avoid CPU contention; this does not affect
 the backend or Stockfish.

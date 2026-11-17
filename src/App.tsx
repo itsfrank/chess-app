@@ -1,20 +1,22 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { Chess, Square } from 'chess.js';
-import type { Annotation, Snapshot } from '../shared/protocol';
+import type { Annotation, PlayerColor, Snapshot } from '../shared/protocol';
 import { analysisArrows } from './analysis';
-import { gameResult, replay, sanForMove, sideToMove, type Promotion } from './chess';
-import { AnalysisPanel, EvalBar } from './components/AnalysisPanel';
+import { gamePositions, gameResult, replay, sanForMove, sideToMove, type Promotion } from './chess';
+import { AnalysisPanel, EvalBar, evalLabel } from './components/AnalysisPanel';
 import { Board } from './components/Board';
 import { Chat } from './components/Chat';
 import { GameSetup } from './components/GameSetup';
 import { Icon } from './components/Icon';
 import type { Highlight } from './components/Message';
 import { HistoryNavigation, MoveList } from './components/MoveHistory';
+import { StatusBar } from './components/StatusBar';
 import { useAnalysis } from './hooks/useAnalysis';
 import { useChat } from './hooks/useChat';
 import { useOpponent, type Opponent } from './hooks/useOpponent';
 
 const NO_ARROWS: Annotation[] = [];
+const MOVES_OPEN_KEY = 'chess-app.moves-open';
 
 export function App() {
   /** The live game as SAN from the starting position; every position is derived from it. */
@@ -35,9 +37,12 @@ export function App() {
     arrows: NO_ARROWS,
   });
   const [activeArrow, setActiveArrow] = useState<string | null>(null);
+  /** Whether the move list is shown beside the board; remembered between visits. */
+  const [movesOpen, setMovesOpen] = useState(() => localStorage.getItem(MOVES_OPEN_KEY) === '1');
 
   const game = useMemo(() => replay(moves), [moves]);
   const live = useMemo<Snapshot>(() => ({ fen: game.fen(), moves }), [game, moves]);
+  const positions = useMemo(() => gamePositions(moves), [moves]);
   const reviewing = reviewPly !== null && reviewPly < moves.length;
   const shownMoves = useMemo(
     () => (reviewing ? moves.slice(0, reviewPly) : moves),
@@ -113,15 +118,6 @@ export function App() {
     setNotice(next ? `New game. You play ${next.color}.` : 'Analysis board. Play either side.');
   };
 
-  const reset = () => {
-    if (moves.length && !window.confirm('Reset the current game?')) return;
-    setMoves([]);
-    setReviewPly(null);
-    setPaused(false);
-    engine.retry();
-    setNotice('Starting position restored.');
-  };
-
   const undo = () => {
     let plies = moves.length - 1;
     if (opponent) {
@@ -151,31 +147,30 @@ export function App() {
   const selectPly = (ply: number) => setReviewPly(ply >= moves.length ? null : ply);
   const history = { moves, ply: shownMoves.length, onSelect: selectPly };
 
+  const toggleMoves = () => {
+    localStorage.setItem(MOVES_OPEN_KEY, movesOpen ? '0' : '1');
+    setMovesOpen(!movesOpen);
+  };
+
+  /** Who sits on a side of the board: the two players against Maia3, the colours when analysing. */
+  const seat = (color: PlayerColor) => {
+    if (!opponent) return <strong>{color === 'white' ? 'White' : 'Black'}</strong>;
+    const you = color === opponent.color;
+    return (
+      <>
+        <strong>{you ? 'You' : 'Maia3'}</strong>
+        <span className="label">{you ? color : `${opponent.elo} · ${color}`}</span>
+      </>
+    );
+  };
+
   return (
-    <main>
+    <main className={movesOpen ? 'moves-open' : undefined}>
       <div className="workspace">
+        {movesOpen && <MoveList {...history} />}
         <section className="board-section" aria-label="Chess workspace">
-          <GameSetup confirm={moves.length > 0} onStart={startGame} />
-          <div className="board-stage">
-            <div className="board-heading">
-              <strong role="status">{status}</strong>
-              <span>
-                {opponent
-                  ? `Maia3 · ${opponent.elo} · You: ${opponent.color}`
-                  : 'Analysis · both sides'}
-              </span>
-            </div>
-            {engine.error && (
-              <div className="opponent-error" role="alert">
-                {engine.error} <button onClick={engine.retry}>Retry move</button>
-                <button onClick={pause}>Pause</button>
-              </div>
-            )}
-            {opponent && paused && !humanTurn && (
-              <button className="resume-game" onClick={() => setPaused(false)}>
-                Resume Maia3
-              </button>
-            )}
+          <div className="stage">
+            <div className="player">{seat(flipped ? 'white' : 'black')}</div>
             <Board
               position={shownGame}
               flipped={flipped}
@@ -186,51 +181,66 @@ export function App() {
               candidates={candidateArrows}
               evalBar={<EvalBar result={analysis.engine} flipped={flipped} />}
             />
-          </div>
-          <div className="board-toolbar">
-            <div className="controls">
-              <button disabled={!moves.length} onClick={undo}>
-                <Icon name="undo" size={16} />
-                {opponent ? 'Take back' : 'Undo'}
-              </button>
-              <button onClick={reset}>
-                <Icon name="reset" size={16} />
-                Reset
-              </button>
-              <button onClick={() => setFlipped(!flipped)}>
-                <Icon name="flip" size={16} />
-                Flip board
-              </button>
+            <div className="player">
+              {seat(flipped ? 'black' : 'white')}
+              <span className="label evaluation" title="Stockfish evaluation, from White's side">
+                {evalLabel(analysis.engine)}
+              </span>
+              <strong className="game-status" role="status">
+                {status}
+              </strong>
+              {opponent && paused && !humanTurn && (
+                <button onClick={() => setPaused(false)}>Resume</button>
+              )}
             </div>
-            <HistoryNavigation {...history} />
+            {engine.error && (
+              <div className="board-alert" role="alert">
+                {engine.error} <button onClick={engine.retry}>Retry move</button>
+                <button onClick={pause}>Pause</button>
+              </div>
+            )}
+            <div className="board-toolbar">
+              <HistoryNavigation {...history} />
+              <div className="controls">
+                <button disabled={!moves.length} onClick={undo}>
+                  <Icon name="undo" size={15} />
+                  {opponent ? 'Take back' : 'Undo'}
+                </button>
+                <button onClick={() => setFlipped(!flipped)}>
+                  <Icon name="flip" size={15} />
+                  Flip
+                </button>
+                <GameSetup confirm={moves.length > 0} onStart={startGame} />
+              </div>
+            </div>
           </div>
-          <label className="review-toggle">
-            <input
-              type="checkbox"
-              checked={autoReview}
-              onChange={event => setAutoReview(event.target.checked)}
-            />
-            Automatic Stockfish coaching{' '}
-            <small>Reviews every move · uses your model subscription</small>
-          </label>
-          <MoveList {...history} />
-          <p className="notice" role="status">
-            {result ? `${status}. Start a new game or use ← / → to explore the moves.` : notice}
-          </p>
-          <details>
-            <summary>Position details</summary>
-            <code>{shownFen}</code>
-            <p>{shownMoves.join(' · ') || 'No moves yet.'}</p>
-          </details>
         </section>
         <Chat
           chat={chat}
           analysisPanel={<AnalysisPanel analysis={analysis} fen={shownFen} />}
           fen={shownFen}
+          positions={positions}
+          onSelectPly={selectPly}
+          coach={autoReview}
+          onCoach={setAutoReview}
           onAsk={message => chat.ask(message, { fen: shownFen, moves: shownMoves }, playerColor)}
           onHighlight={highlight}
         />
       </div>
+      <button
+        className="moves-toggle"
+        aria-expanded={movesOpen}
+        aria-label={movesOpen ? 'Hide move list' : 'Show move list'}
+        title={movesOpen ? 'Hide move list' : 'Show move list'}
+        onClick={toggleMoves}
+      >
+        <Icon name={movesOpen ? 'left' : 'right'} size={16} />
+      </button>
+      <StatusBar
+        fen={shownFen}
+        usage={chat.usage}
+        notice={result ? `${status}. Start a new game or use ← / → to explore the moves.` : notice}
+      />
     </main>
   );
 }

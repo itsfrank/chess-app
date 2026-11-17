@@ -53,3 +53,22 @@ export function gameResult(game: Chess): string | null {
   if (game.isDraw()) return 'Draw · Fifty-move rule';
   return null;
 }
+
+/** Where a position sits in the game: the half-moves played to reach it and the move that did. */
+export type PositionInfo = { ply: number; label: string };
+
+/**
+ * Every position of the game keyed by FEN, labelled like a scoresheet:
+ * "11. Nf1" for White's moves and "11… Be6" for Black's. A repeated
+ * position keeps its latest occurrence.
+ */
+export function gamePositions(moves: readonly string[]): Map<string, PositionInfo> {
+  const game = new Chess();
+  const positions = new Map([[game.fen(), { ply: 0, label: 'Starting position' }]]);
+  moves.forEach((san, index) => {
+    game.move(san);
+    const label = `${Math.floor(index / 2) + 1}${index % 2 === 0 ? '.' : '…'} ${san}`;
+    positions.set(game.fen(), { ply: index + 1, label });
+  });
+  return positions;
+}
