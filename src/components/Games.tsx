@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import type { Annotation, ArchivedGame, PlayerColor } from '../../shared/protocol';
 import type { Trace } from '../../shared/habits';
-import { numberedMove, QUALITIES, type QualityId } from '../../shared/quality';
+import { explainPrompt, numberedMove, QUALITIES, type QualityId } from '../../shared/quality';
 import { analysisArrows } from '../analysis';
 import { gamePositions, replay } from '../chess';
 import { useAnalysis } from '../hooks/useAnalysis';
@@ -140,22 +140,15 @@ function GameReview(props: {
   const explainMove = () => {
     const move = review.moves[ply - 1];
     if (!game || !move) return;
-    const played = numberedMove(ply - 1, moves[ply - 1]);
     const mine = (ply % 2 === 1) === (game.playerColor === 'white');
     const before = moves.slice(0, ply - 1);
-    const verdict =
-      move.quality.id === 'book'
-        ? 'It is common opening theory. Explain the idea behind it and name the main alternatives.'
-        : move.best === moves[ply - 1]
-          ? `The engine review labels it ${move.quality.label}: it is the engine's own choice. Explain the idea behind it and, using Stockfish, what the most natural alternative would have allowed.`
-          : `The engine review labels it ${move.quality.label} and prefers ${move.best}. Using Stockfish from this position, compare the two: where does each lead, and what did the move played miss or allow? Draw one arrow for the move played and one for the engine's choice.`;
     selectPly(ply - 1);
     chat.ask(
-      `From this position ${mine ? 'I' : 'my opponent'} played ${played}. ${verdict}`,
+      explainPrompt(moves, ply - 1, move, mine),
       { fen: replay(before).fen(), moves: before },
       game.playerColor,
       game,
-      `Explain ${played}`,
+      `Explain ${numberedMove(ply - 1, moves[ply - 1])}`,
     );
   };
   const history = { moves, ply, onSelect: selectPly };

@@ -224,6 +224,7 @@ Recordings with an interrupted turn are rejected.
 ## Development
 
 ```sh
+npm run eval -- <label>   # measure false board claims in the companion's answers (see below)
 npm run check        # type-check, lint, format check and unit tests
 npm run format       # apply Prettier
 npm run build        # production build of the frontend
@@ -242,6 +243,7 @@ server/   Local HTTP API
   stockfish.ts  analysis engine             opponent.ts    Maia3 subprocess
   lichess.ts    opening explorer            recording.ts   session recording and replay
   chesscom.ts   a player's game archive     snapshot.ts    request validation
+  facts.ts      board facts for the companion  settings.ts  app-wide settings
   game-review.ts  engine pass over a game for move quality
   repertoires.ts  imported repertoires and their analysis   evaluator.ts  fixed-depth Stockfish
 src/      React frontend
@@ -250,8 +252,22 @@ src/      React frontend
   components/Games.tsx  chess.com game list and review
   components/   board, chat, analysis panel annotations.ts move links in rendered Markdown
   style.css     appearance                  layout.css     sizing and breakpoints
+evals/    Measures false board claims in the companion's answers
 docs/design/  Redesign screenshots and a script that generates a synthetic replay fixture
 ```
+
+The companion is not left to work out piece geometry from a FEN. With every turn and every engine
+result it gets facts computed from the board (`server/facts.ts`): each side's pieces by square, the
+material count, which pieces are attacked, defended, loose or pinned, and for the first moves of
+each engine line what the move takes, attacks, uncovers and leaves loose. Its prompt tells it to
+take such statements from the facts or not make them.
+
+`npm run eval -- <label>` measures how well that works. With the backend running, it asks each of
+three models to explain the worst and best moves of your most recent games, has a model write down
+every concrete board claim in the answers, and decides each claim with the rules of chess
+(`evals/claims.ts`). Results go to `.data/evals/<label>.json`, the questions are fixed in
+`.data/evals/cases.json` so runs are comparable, and `npm run eval -- compare a b` prints two runs
+side by side. A run makes about seventy model requests. `docs/ROADMAP.md` lists what is planned.
 
 The agent can only use `analyze_position`, `set_arrows` and `lichess_moves`; the backend refuses to
 run a session with any other tool active. The model's move links are never trusted: the backend asks

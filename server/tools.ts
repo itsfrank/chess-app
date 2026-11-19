@@ -8,6 +8,7 @@ import {
 } from '../shared/annotation-palette.ts';
 import type { Annotation, ServerEvent } from '../shared/protocol.ts';
 import { ENGINE } from './config.ts';
+import { describeLine, describePosition } from './facts.ts';
 import { explore, ratings, speeds } from './lichess.ts';
 import { analyze, type UciTrace } from './stockfish.ts';
 
@@ -49,7 +50,7 @@ export function createTools(context: ToolContext) {
     defineTool({
       name: 'analyze_position',
       label: 'Stockfish',
-      description: `Evaluate the submitted position and return the top ${ENGINE.multiPV} engine moves, White-perspective scores and continuations. Optionally apply hypothetical moves. Set beforeLastMove to start from the position before the last move of the snapshot's history instead: use it to see what else could have been played there, or with moves set to an alternative to see where that leads.`,
+      description: `Evaluate the submitted position and return the top ${ENGINE.multiPV} engine moves, White-perspective scores and continuations, with facts computed from the board: where the pieces stand, what is attacked, and for each line's first moves what the move takes, attacks, uncovers and leaves loose. Optionally apply hypothetical moves. Set beforeLastMove to start from the position before the last move of the snapshot's history instead: use it to see what else could have been played there, or with moves set to an alternative to see where that leads.`,
       parameters: Type.Object({
         moves: hypotheticalMoves,
         beforeLastMove: Type.Optional(Type.Boolean()),
@@ -66,7 +67,15 @@ export function createTools(context: ToolContext) {
           context.movetimeMs,
         );
         context.emit({ type: 'analysis', result });
-        return textResult(result);
+        // The model gets the lines spelled out: what each move takes, attacks and leaves loose.
+        return textResult({
+          ...result,
+          position: describePosition(result.fen),
+          moves: result.moves.map(candidate => ({
+            ...candidate,
+            ...describeLine(result.fen, candidate.continuation),
+          })),
+        });
       },
     }),
     defineTool({

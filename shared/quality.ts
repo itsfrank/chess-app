@@ -144,3 +144,22 @@ export function reviewGame(
 /** "12. Nxe5" or "12… Nxe5" for the half-move at `index`. */
 export const numberedMove = (index: number, san: string) =>
   `${Math.floor(index / 2) + 1}${index % 2 === 0 ? '.' : '…'} ${san}`;
+
+/**
+ * What the Explain button asks the companion about the move at `index`, sent
+ * with the position before it. `mine` says whether the user played the move.
+ */
+export function explainPrompt(
+  moves: string[],
+  index: number,
+  review: MoveReview,
+  mine: boolean,
+): string {
+  const verdict =
+    review.quality.id === 'book'
+      ? 'It is common opening theory. Explain the idea behind it and name the main alternatives.'
+      : review.best === moves[index]
+        ? `The engine review labels it ${review.quality.label}: it is the engine's own choice. Explain the idea behind it and, using Stockfish, what the most natural alternative would have allowed.`
+        : `The engine review labels it ${review.quality.label} and prefers ${review.best}. Using Stockfish from this position, compare the two: where does each lead, and what did the move played miss or allow? Draw one arrow for the move played and one for the engine's choice.`;
+  return `From this position ${mine ? 'I' : 'my opponent'} played ${numberedMove(index, moves[index])}. ${verdict}`;
+}

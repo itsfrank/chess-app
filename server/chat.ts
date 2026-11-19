@@ -14,6 +14,7 @@ import type { ChatRequest, Effort, ServerEvent, Totals } from '../shared/protoco
 import { annotationErrors, repairAnnotations } from './annotation-feedback.ts';
 import { ENGINE, MAX_CONVERSATIONS, MODEL_PROVIDER, SESSIONS_DIR } from './config.ts';
 import { ConversationStore } from './conversations.ts';
+import { describeLine, describePosition } from './facts.ts';
 import { errorMessage, HttpError } from './http.ts';
 import { SYSTEM_PROMPT } from './prompt.ts';
 import { Recorder } from './recording.ts';
@@ -33,20 +34,20 @@ type Conversation = ToolContext & {
   touched: number;
 };
 
-/** Gives the agent our system prompt and nothing else: no extensions, skills or context files. */
-const resourceLoader: ResourceLoader = {
+/** Gives an agent `systemPrompt` and nothing else: no extensions, skills or context files. */
+export const promptOnly = (systemPrompt: string): ResourceLoader => ({
   getExtensions: () => ({ extensions: [], errors: [], runtime: createExtensionRuntime() }),
   getSkills: () => ({ skills: [], diagnostics: [] }),
   getPrompts: () => ({ prompts: [], diagnostics: [] }),
   getThemes: () => ({ themes: [], diagnostics: [] }),
   getAgentsFiles: () => ({ agentsFiles: [] }),
-  getSystemPrompt: () => SYSTEM_PROMPT,
+  getSystemPrompt: () => systemPrompt,
   getSystemPromptSource: () => undefined,
   getAppendSystemPrompt: () => [],
   getAppendSystemPromptSources: () => [],
   extendResources: () => {},
   reload: async () => {},
-};
+});
 
 /** The position before the last of `moves`, which are known to be legal. */
 function previousFen(moves: string[]): string | undefined {
@@ -196,7 +197,7 @@ export class ChatService {
       modelRuntime: this.modelRuntime,
       model,
       thinkingLevel: conversation.model.effort,
-      resourceLoader,
+      resourceLoader: promptOnly(SYSTEM_PROMPT),
       tools: names,
       customTools: tools,
       settingsManager: SettingsManager.inMemory(),
@@ -249,8 +250,16 @@ export class ChatService {
         ? `\n\nGame under review: ${JSON.stringify(game)}` +
           (engineReview ? `\n\nEngine review of the game: ${JSON.stringify(engineReview)}` : '')
         : '';
+      const facts = {
+        ...describePosition(fen),
+        // What the move that led here did, when there is one.
+        ...(conversation.previousFen && {
+          lastMove: describeLine(conversation.previousFen, moves.slice(-1)).steps[0],
+        }),
+      };
       await prompt(
-        `Board snapshot: ${JSON.stringify({ fen, moves, playerColor })}${review}\n\nUser: ${message}`,
+        `Board snapshot: ${JSON.stringify({ fen, moves, playerColor })}\n\n` +
+          `Board facts: ${JSON.stringify(facts)}${review}\n\nUser: ${message}`,
       );
       const remaining = await repairAnnotations({
         errors: () => annotationErrors(fen, text, conversation.arrows),
