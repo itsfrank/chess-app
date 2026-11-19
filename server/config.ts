@@ -58,6 +58,9 @@ export const FREQUENCY_SPEEDS = ['blitz', 'rapid', 'classical'];
 /** The explorer rejects bursts of more than about twenty requests a minute. */
 export const FREQUENCY_SPACING_MS = 3500;
 
+/** Comparing a repertoire with the player's games: how many recent games, and how deep into each. */
+export const HABITS = { games: 300, pages: 8, plies: 60 };
+
 export const MAX_BODY_CHARS = 32_000;
 export const MAX_PGN_CHARS = 2_000_000;
 export const MAX_HISTORY_MOVES = 2000;

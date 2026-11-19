@@ -2,8 +2,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, expect, it } from 'vitest';
-import type { PositionEval } from '../shared/protocol.ts';
-import { RepertoireService, type FrequencyLoader } from './repertoires.ts';
+import type { ArchivedGame, PositionEval } from '../shared/protocol.ts';
+import { RepertoireService, type FrequencyLoader, type GameLoader } from './repertoires.ts';
 
 const dir = mkdtempSync(join(tmpdir(), 'chess-app-repertoires-'));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -12,6 +12,27 @@ afterAll(() => rmSync(dir, { recursive: true, force: true }));
 const PGN = `[Event "Test"]
 
 1. d4 d5 (1... Nf6 2. Nf3 d5 3. c4 e6 4. g3) 2. c4 Nf6 3. cxd5 Nxd5 4. e4 *`;
+
+/** chess.com games in two pages; only those played as White belong to the repertoire. */
+const archived = (line: string, day: number, playerColor = 'white') =>
+  ({
+    url: `https://example.com/${day}`,
+    playedAt: `2026-11-${String(day).padStart(2, '0')}T12:00:00.000Z`,
+    moves: line.split(' '),
+    playerColor,
+  }) as ArchivedGame;
+const loadGames: GameLoader = async (_username, before) =>
+  before
+    ? { username: 'Frk', older: null, games: [archived('d4 d5 c4 Nf6 Nc3 c6', 2)] }
+    : {
+        username: 'Frk',
+        older: 1,
+        games: [
+          archived('d4 d5 c4 Nf6 Nc3 e6 e3 Be7', 9),
+          archived('d4 d5 c4 Nf6 cxd5 Nxd5', 8),
+          archived('e4 d5', 7, 'black'),
+        ],
+      };
 
 function service(loadFrequencies: FrequencyLoader = async () => ({ d5: 0.5, Nf6: 0.25 })) {
   const evals = new Map<string, PositionEval>();
@@ -30,6 +51,7 @@ function service(loadFrequencies: FrequencyLoader = async () => ({ d5: 0.5, Nf6:
     evaluator,
     frequencyFile: join(dir, 'frequencies.json'),
     loadFrequencies,
+    loadGames,
     rateLimitWaitMs: 5,
     frequencySpacingMs: 0,
   });
@@ -88,4 +110,33 @@ it('rejects PGNs it cannot read and unknown repertoires', () => {
   expect(() => repertoires.import({ pgn: '1. e4 e5 2. Ke3' })).toThrow('Illegal move Ke3');
   expect(() => repertoires.import({ pgn: '' })).toThrow('Missing PGN');
   expect(() => repertoires.report('../usage')).toThrow('Repertoire not found');
+});
+
+it('compares the player’s games with the repertoire and adopts a move they keep playing', async () => {
+  const repertoires = service();
+  const imported = repertoires.import({ pgn: PGN });
+  expect(imported.habits).toBeNull();
+  await expect(repertoires.syncGames(imported.id, 42)).rejects.toThrow('username');
+
+  const synced = await repertoires.syncGames(imported.id, 'frk');
+  expect(synced.habits).toMatchObject({
+    username: 'Frk',
+    games: 3,
+    exits: { deviation: 2, 'game-end': 1 },
+    habits: [{ count: 2, followed: 1, finding: { current: 'cxd5', proposed: 'Nc3' } }],
+  });
+  // The position after the habitual move is evaluated with the rest.
+  const habit = synced.habits!.habits[0];
+  expect(synced.job.evalTotal).toBeGreaterThan(imported.job.evalTotal);
+  repertoires.analyze(imported.id);
+  await expect.poll(() => repertoires.report(imported.id).job.running).toBe(false);
+  expect(repertoires.report(imported.id).evals[habit.finding.after.key]).toBeDefined();
+
+  const accepted = repertoires.accept(imported.id, habit.finding.id);
+  expect(accepted.changes).toMatchObject([{ from: 'cxd5', to: 'Nc3' }]);
+  // Those games now follow the repertoire, and the one that took on d5 is the deviation.
+  expect(accepted.habits).toMatchObject({
+    exits: { deviation: 1 },
+    habits: [{ count: 1, followed: 2, finding: { current: 'Nc3', proposed: 'cxd5' } }],
+  });
 });

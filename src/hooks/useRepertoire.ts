@@ -110,6 +110,7 @@ export function useRepertoire() {
       act(() => repertoires.dismiss(id, { findingId, dismissed })),
     analyze: (ratings?: number[]) => act(() => repertoires.analyze(id, { ratings })),
     stop: () => act(() => repertoires.stop(id, {})),
+    syncGames: (username: string) => act(() => repertoires.games(id, { username })),
   };
 }
 export type RepertoireState = ReturnType<typeof useRepertoire>;

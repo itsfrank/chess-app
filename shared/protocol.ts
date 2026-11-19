@@ -1,6 +1,7 @@
 /** Types and constants shared by the browser client and the local backend. */
 import type { Square } from 'chess.js';
 import type { Finding, Rule } from './consolidation.ts';
+import type { Habits } from './habits.ts';
 import type { Change, Graph } from './repertoire.ts';
 
 export type PlayerColor = 'white' | 'black';
@@ -162,6 +163,8 @@ export type RepertoireReport = RepertoireSummary & {
   dismissed: string[];
   /** Accepted deviations from the import, oldest first; inactive ones no longer fit. */
   changes: (Change & { active: boolean; path: string[] })[];
+  /** The player's own games compared with the repertoire; null until they have been fetched. */
+  habits: (Habits & { username: string; fetchedAt: string }) | null;
   /** Engine verdicts by position key, for the graph and for every proposed move. */
   evals: Record<string, PositionEval>;
   /** How often each position arises per game, from opponents' move frequencies. */

@@ -133,4 +133,6 @@ export const repertoires = {
   /** Starts the engine and Lichess passes; `ratings` changes the rating range first. */
   analyze: repertoireAction<{ ratings?: number[] }>('analyze'),
   stop: repertoireAction<object>('stop'),
+  /** Fetches the player's chess.com games and compares them with the repertoire. */
+  games: repertoireAction<{ username: string }>('games'),
 };

@@ -972,3 +972,28 @@ button.finding-eval {
   text-decoration: underline;
   text-underline-offset: 3px;
 }
+
+/* The player's own games against the repertoire */
+.repertoire-trace {
+  font-size: 12.5px;
+  color: var(--soft);
+  border-bottom: 1px solid var(--line);
+}
+.repertoire-trace.deviation span:not(.label) {
+  color: var(--warning);
+}
+.repertoire-trace button,
+.finding-detail a {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.finding-tags .suggested {
+  color: var(--gold);
+  font-weight: 600;
+}
+.habit-form button {
+  padding: 4px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+}

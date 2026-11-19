@@ -519,3 +519,19 @@ main.repertoire {
     --moves: 186px;
   }
 }
+.repertoire-trace {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: -4px 0 12px;
+  padding-bottom: 10px;
+}
+.repertoire-trace span:not(.label) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.habit-form {
+  padding-bottom: 12px;
+}

@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import type { Annotation, ArchivedGame, PlayerColor } from '../../shared/protocol';
+import type { Trace } from '../../shared/habits';
 import {
   numberedMove,
   QUALITIES,
@@ -11,6 +12,7 @@ import { gamePositions, replay } from '../chess';
 import { useAnalysis } from '../hooks/useAnalysis';
 import { useChat } from '../hooks/useChat';
 import { useGameReview } from '../hooks/useGameReview';
+import { useRepertoireTrace } from '../hooks/useRepertoireTrace';
 import { useGames, type GamesState } from '../hooks/useGames';
 import { AnalysisPanel, EvalBar, evalLabel } from './AnalysisPanel';
 import { Board, type SquareBadge } from './Board';
@@ -85,6 +87,7 @@ function GameReview(props: {
 
   const analysis = useAnalysis(shownFen);
   const { review, error: reviewError, retry: retryReview } = useGameReview(moves);
+  const repertoire = useRepertoireTrace(game);
   /** The verdict on each move, for the move list and the board. */
   const marks = useMemo(
     () =>
@@ -247,6 +250,9 @@ function GameReview(props: {
                     shown={marks[ply - 1]}
                     onExplain={explainMove}
                   />
+                  {repertoire && (
+                    <RepertoireNote {...repertoire} moves={moves} onSelectPly={selectPly} />
+                  )}
                   <AnalysisPanel analysis={analysis} fen={shownFen} />
                 </>
               }
@@ -276,6 +282,36 @@ function GameReview(props: {
         notice={game ? `${game.white.name} against ${game.black.name}. ${outcome}.` : outcome}
       />
     </main>
+  );
+}
+
+/** Where the game left the user's repertoire, with a way to jump there. */
+function RepertoireNote(props: {
+  name: string;
+  trace: Trace;
+  moves: string[];
+  onSelectPly: (ply: number) => void;
+}) {
+  const { name, trace, moves, onSelectPly } = props;
+  const { plies, exit, played, expected } = trace;
+  const move = played && numberedMove(plies, played);
+  const last = plies ? numberedMove(plies - 1, moves[plies - 1]) : 'the first move';
+  const text =
+    exit === 'deviation'
+      ? `You left it with ${move}; it plays ${expected.join(' or ')}.`
+      : exit === 'uncovered'
+        ? `Your opponent left it with ${move}, which it has no answer to.`
+        : exit === 'line-end'
+          ? `You followed it to the end of its line, ${last}.`
+          : 'The whole game stayed inside it.';
+  return (
+    <p className={`repertoire-trace${exit === 'deviation' ? ' deviation' : ''}`}>
+      <span className="label">Repertoire</span>
+      <span title={`Compared with “${name}”`}>{text}</span>
+      {plies < moves.length && (
+        <button onClick={() => onSelectPly(exit === 'line-end' ? plies : plies + 1)}>Show</button>
+      )}
+    </p>
   );
 }
 

@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import type { Finding } from '../../shared/consolidation';
+import { isCommon, type Habit } from '../../shared/habits';
 import type { RepertoireReport } from '../../shared/protocol';
 import { formatPath } from '../../shared/repertoire';
 import type { Audit, Verdict } from '../../shared/soundness';
+import { USERNAME_KEY } from '../hooks/useGames';
 import type { View } from './Repertoire';
 
 /** Repertoire moves losing at least this many centipawns to the engine's choice are listed. */
@@ -17,6 +19,8 @@ export type Proposal = {
   saved: number;
   reach: number;
   dismissed: boolean;
+  /** Set when the proposal comes from the player's own games rather than the repertoire's shape. */
+  habit?: Habit;
 };
 
 /** A move with its number, given the half-moves played before it: "3. Nf3" or "3… d5". */
@@ -114,13 +118,19 @@ export function ProposalList(
                 onView(view);
               }}
             >
-              <span
-                className="finding-saved"
-                title="Change in positions you have to know; an upper bound while new lines are needed"
-              >
-                {finding.openLines > 0 && saved > 0 && '≤ '}
-                {saved > 0 ? `−${saved}` : saved < 0 ? `+${-saved}` : '0'}
-              </span>
+              {item.habit ? (
+                <span className="finding-saved" title="Games in which you played this move here">
+                  ×{item.habit.count}
+                </span>
+              ) : (
+                <span
+                  className="finding-saved"
+                  title="Change in positions you have to know; an upper bound while new lines are needed"
+                >
+                  {finding.openLines > 0 && saved > 0 && '≤ '}
+                  {saved > 0 ? `−${saved}` : saved < 0 ? `+${-saved}` : '0'}
+                </span>
+              )}
               <span className="finding-move">
                 <s>{numbered(path.length, finding.current)}</s> → {finding.proposed}
               </span>
@@ -130,6 +140,15 @@ export function ProposalList(
               </span>
               <span className="finding-path">{formatPath(path) || 'First move'}</span>
               <span className="finding-tags">
+                {item.habit && isCommon(item.habit) && item.status === 'sound' && (
+                  <i className="suggested">suggested</i>
+                )}
+                {item.habit && (
+                  <i>
+                    repertoire move played {item.habit.followed}
+                    {item.habit.followed === 1 ? ' time' : ' times'}
+                  </i>
+                )}
                 {finding.peers && <i>usual move ×{finding.peers.count}</i>}
                 {finding.direct && <i>known position</i>}
                 {finding.openLines > 0 && (
@@ -141,6 +160,23 @@ export function ProposalList(
             </button>
             {expanded && (
               <div className="finding-detail">
+                {item.habit && (
+                  <p>
+                    You played {finding.proposed} here in{' '}
+                    {item.habit.games.slice(0, 5).map((game, index) => (
+                      <a key={game.url} href={game.url} target="_blank" rel="noreferrer">
+                        {index > 0 && ', '}
+                        {new Date(game.playedAt).toLocaleDateString(undefined, {
+                          day: 'numeric',
+                          month: 'short',
+                        })}
+                      </a>
+                    ))}
+                    {item.habit.count > 5 && ` and ${item.habit.count - 5} more`}, and the
+                    repertoire&rsquo;s {finding.current} in {item.habit.followed}{' '}
+                    {item.habit.followed === 1 ? 'game' : 'games'}.
+                  </p>
+                )}
                 <p>
                   Positions to know: {finding.decisionsBefore} → {finding.decisionsAfter}. This
                   position arises in {share(report, finding.key)}.
@@ -214,6 +250,73 @@ export function ProposalList(
           </article>
         );
       })}
+    </>
+  );
+}
+
+/**
+ * The player's own games against the repertoire: a form to fetch them, how
+ * they left it, and each move played instead of the repertoire's as a
+ * proposal to adopt it.
+ */
+export function HabitList(
+  props: Parameters<typeof ProposalList>[0] & { onSync: (username: string) => void },
+) {
+  const { report, busy, onSync } = props;
+  const { habits } = report;
+  const [name, setName] = useState(
+    () => habits?.username ?? localStorage.getItem(USERNAME_KEY) ?? '',
+  );
+  return (
+    <>
+      <form
+        className="games-form habit-form"
+        onSubmit={event => {
+          event.preventDefault();
+          if (!name.trim()) return;
+          localStorage.setItem(USERNAME_KEY, name.trim());
+          onSync(name.trim());
+        }}
+      >
+        <label>
+          <span className="label">chess.com username</span>
+          <input
+            type="text"
+            value={name}
+            maxLength={50}
+            autoComplete="off"
+            spellCheck={false}
+            placeholder="Username"
+            onChange={event => setName(event.target.value)}
+          />
+        </label>
+        <button className="primary" disabled={busy || !name.trim()}>
+          {busy ? 'Working…' : habits ? 'Refresh games' : 'Check my games'}
+        </button>
+      </form>
+      {habits ? (
+        <>
+          <p className="repertoire-note">
+            {habits.games} recent games as {report.side}, checked{' '}
+            {new Date(habits.fetchedAt).toLocaleDateString()}: you left the repertoire first in{' '}
+            {habits.exits.deviation}, your opponent in {habits.exits.uncovered}, and{' '}
+            {habits.exits['line-end'] + habits.exits['game-end']} stayed in it to the end of the
+            line. Below are the moves you played instead of the repertoire&rsquo;s. One is suggested
+            when you played it more than once, at least as often as the repertoire move, and
+            Stockfish scores it within your tolerance.
+          </p>
+          {habits.habits.length ? (
+            <ProposalList {...props} />
+          ) : (
+            <p className="repertoire-empty">You never left the repertoire by your own move.</p>
+          )}
+        </>
+      ) : (
+        <p className="repertoire-empty">
+          Fetch your recent chess.com games to see where you leave this repertoire, and which of
+          your own moves are sound enough to adopt instead.
+        </p>
+      )}
     </>
   );
 }

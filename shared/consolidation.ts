@@ -136,6 +136,47 @@ function planLines(
     });
 }
 
+/**
+ * The finding for playing `proposed` instead of `current` at `key`, whatever
+ * it does to the repertoire's size; null when either move does not fit there.
+ */
+export function proposeChange(
+  graph: Graph,
+  key: string,
+  current: string,
+  proposed: string,
+): Finding | null {
+  const node = graph.nodes[key];
+  const child = graph.nodes[node?.moves.find(move => move.san === current)?.to ?? ''];
+  const played = node && playMove(node.fen, proposed);
+  if (!child || !played || node.moves.some(move => move.san === proposed)) return null;
+  const direct = !!graph.nodes[played.move.to];
+  if (direct && reaches(graph, played.move.to, node.key)) return null;
+  const replies = child.moves.map(move => move.san);
+  const answers = [
+    ...new Set([
+      current,
+      ...child.moves.flatMap(reply => graph.nodes[reply.to].moves.map(move => move.san)),
+    ]),
+  ];
+  const plan = direct ? [] : planLines(graph, node, played.fen, replies, answers);
+  const changed = applyChange(graph, { key, from: current, to: proposed, plan });
+  if (!changed) return null;
+  return {
+    id: `${key}|${current}|${proposed}`,
+    key,
+    current,
+    proposed,
+    after: { key: played.move.to, fen: played.fen },
+    direct,
+    plan,
+    openLines: plan.filter(line => !line.joins).length,
+    decisionsBefore: decisionCount(graph),
+    decisionsAfter: decisionCount(changed),
+    peers: null,
+  };
+}
+
 export function findConsolidations(graph: Graph): { rules: Rule[]; findings: Finding[] } {
   const { rules, ruleOf } = findRules(graph);
   const decisionsBefore = decisionCount(graph);

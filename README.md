@@ -109,6 +109,10 @@ blunder too. Its own engine checks start from the position shown, or from the on
 just played when you ask why that move was good or bad, and reach at most 20 half-moves further
 into the game.
 
+When you have a repertoire for the colour you played, a **Repertoire** line under the table says
+where the game left it: by your move (with the move the repertoire plays), by your opponent's, or
+at the end of a line. **Show** jumps to that move.
+
 **Explain**, beside the verdict on the shown move, steps the board back to where that move was
 chosen and asks the companion to compare it with the engine's choice, with an arrow for each. Each game has its own conversation, kept until you choose another game. **← Games** returns to
 the list and **Back to game** to the review.
@@ -125,6 +129,16 @@ one, and the header shows how many positions you actually have to know a move in
   arranged that way. Each shows the change in positions to know (an upper bound, marked `≤`, when
   some replies would need a new line), the engine's score against your current move, and how the
   line continues. Select one to see it on the board.
+- **Your games** compares the repertoire with what you actually play. Enter your chess.com
+  username and press **Check my games**: your last 300 or so games are fetched, and those you played
+  as the repertoire's colour are followed through it until they leave. The summary says how often you
+  left first and how often your opponent did, and each move you played instead of the repertoire's
+  is listed as a proposal to adopt it, with how many games you played it in and how often you played
+  the repertoire move there instead. A proposal is marked **suggested** when you played the move
+  more than once, at least as often as the repertoire move, and Stockfish scores it within the
+  tolerance. Reaching a known position by another move order counts as following the repertoire.
+  Accepting works like any other proposal; the games are kept with the repertoire, so the list is
+  recounted after each change. Only the first 30 moves of each game are compared.
 - **Unsound** lists repertoire moves that lose half a pawn or more to the engine's choice.
 - **Rules** groups positions by where your own pieces stand and shows what you play from each,
   with the exceptions.
@@ -207,6 +221,7 @@ TEST_STOCKFISH=1 TEST_MAIA3=1 npm test   # also exercise the installed engines
 shared/   Used by both sides: the wire protocol, SAN recognition and the arrow palette
   repertoire.ts     position graph of a PGN  consolidation.ts  proposals and rules
   soundness.ts      engine verdicts, move frequencies
+  habits.ts         a player's games against a repertoire
   quality.ts        move labels and accuracy for a reviewed game
 server/   Local HTTP API
   index.ts      startup and shutdown        app.ts         routing

@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ArchivedGame } from '../../shared/protocol';
 import { fetchGames } from '../api';
 
-const USERNAME_KEY = 'chess-app.chesscom-username';
+/** Where the chess.com username is remembered, for every screen that asks for it. */
+export const USERNAME_KEY = 'chess-app.chesscom-username';
 
 /** A chess.com player's recent games, newest first. The username is remembered between visits. */
 export function useGames() {

@@ -1,7 +1,9 @@
 import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { Chess } from 'chess.js';
+import type { Finding } from '../../shared/consolidation';
 import { RATING_BUCKETS, type Annotation, type RepertoireReport } from '../../shared/protocol';
 import { positionKey } from '../../shared/repertoire';
+import { isCommon } from '../../shared/habits';
 import { auditMoves, verdictOf } from '../../shared/soundness';
 import { useRepertoire, type RepertoireState } from '../hooks/useRepertoire';
 import { replay } from '../chess';
@@ -10,6 +12,7 @@ import { Board } from './Board';
 import {
   AcceptedList,
   AuditList,
+  HabitList,
   ProposalList,
   RuleList,
   AUDIT_THRESHOLD,
@@ -20,7 +23,9 @@ import {
 const TOLERANCE_KEY = 'chess-app.repertoire-tolerance';
 const CURRENT_COLOR = '#d9c48a';
 const PROPOSED_COLOR = '#60a5fa';
-type Tab = 'proposals' | 'unsound' | 'rules' | 'accepted';
+/** Order of proposals by what the engine made of them. */
+const RANK = { sound: 0, pending: 1, unsound: 2 };
+type Tab = 'proposals' | 'habits' | 'unsound' | 'rules' | 'accepted';
 
 /** What the board is showing: a line from the start, and the moves to draw from its end. */
 export type View = { path: string[]; current?: string; proposed?: string };
@@ -56,33 +61,46 @@ export function RepertoireScreen({ modeSwitch }: { modeSwitch: ReactNode }) {
     () => Number(localStorage.getItem(TOLERANCE_KEY)) || 25,
   );
 
+  /** A finding with the engine's verdict on it and what the user has decided about it. */
+  const judge = useMemo(() => {
+    const dismissed = new Set(report?.dismissed);
+    return (finding: Finding): Proposal => {
+      const verdict = report ? verdictOf(report.graph, report.evals, finding) : null;
+      return {
+        finding,
+        verdict,
+        status: !verdict ? 'pending' : verdict.delta >= -tolerance ? 'sound' : 'unsound',
+        saved: finding.decisionsBefore - finding.decisionsAfter,
+        reach: report?.reach[finding.key] ?? 0,
+        dismissed: dismissed.has(finding.id),
+      };
+    };
+  }, [report, tolerance]);
   const proposals = useMemo<Proposal[]>(() => {
     if (!report) return [];
-    const dismissed = new Set(report.dismissed);
-    const rank = { sound: 0, pending: 1, unsound: 2 };
-    return report.findings
-      .map(finding => {
-        const verdict = verdictOf(report.graph, report.evals, finding);
-        const status = !verdict ? 'pending' : verdict.delta >= -tolerance ? 'sound' : 'unsound';
-        return {
-          finding,
-          verdict,
-          status: status as Proposal['status'],
-          saved: finding.decisionsBefore - finding.decisionsAfter,
-          reach: report.reach[finding.key] ?? 0,
-          dismissed: dismissed.has(finding.id),
-        };
-      })
+    return report.findings.map(judge).sort(
+      (a, b) =>
+        Number(a.dismissed) - Number(b.dismissed) ||
+        RANK[a.status] - RANK[b.status] ||
+        // A saving that depends on lines not yet prepared is only an upper bound.
+        Number(a.finding.openLines > 0) - Number(b.finding.openLines > 0) ||
+        b.saved - a.saved ||
+        b.reach - a.reach,
+    );
+  }, [report, judge]);
+  /** Moves from the player's own games, the ones worth adopting first. */
+  const habits = useMemo<Proposal[]>(() => {
+    const suggested = (item: Proposal) => isCommon(item.habit!) && item.status !== 'unsound';
+    return (report?.habits?.habits ?? [])
+      .map(habit => ({ ...judge(habit.finding), habit }))
       .sort(
         (a, b) =>
           Number(a.dismissed) - Number(b.dismissed) ||
-          rank[a.status] - rank[b.status] ||
-          // A saving that depends on lines not yet prepared is only an upper bound.
-          Number(a.finding.openLines > 0) - Number(b.finding.openLines > 0) ||
-          b.saved - a.saved ||
-          b.reach - a.reach,
+          Number(suggested(b)) - Number(suggested(a)) ||
+          b.habit.count - a.habit.count ||
+          RANK[a.status] - RANK[b.status],
       );
-  }, [report, tolerance]);
+  }, [report, judge]);
   const audits = useMemo(
     () => (report ? auditMoves(report.graph, report.evals, AUDIT_THRESHOLD) : []),
     [report],
@@ -103,6 +121,7 @@ export function RepertoireScreen({ modeSwitch }: { modeSwitch: ReactNode }) {
   const tabs: [Tab, string, number][] = report
     ? [
         ['proposals', 'Proposals', proposals.filter(item => !item.dismissed).length],
+        ['habits', 'Your games', habits.filter(item => !item.dismissed).length],
         ['unsound', 'Unsound', audits.length],
         ['rules', 'Rules', report.rules.length],
         ['accepted', 'Accepted', report.changes.length],
@@ -185,6 +204,18 @@ export function RepertoireScreen({ modeSwitch }: { modeSwitch: ReactNode }) {
                     onView={setView}
                     onAccept={state.accept}
                     onDismiss={state.dismiss}
+                  />
+                )}
+                {tab === 'habits' && (
+                  <HabitList
+                    report={report}
+                    proposals={habits}
+                    tolerance={tolerance}
+                    busy={state.busy}
+                    onView={setView}
+                    onAccept={state.accept}
+                    onDismiss={state.dismiss}
+                    onSync={state.syncGames}
                   />
                 )}
                 {tab === 'unsound' && (

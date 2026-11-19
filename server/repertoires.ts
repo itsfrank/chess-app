@@ -2,7 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { findConsolidations, type Finding, type Rule } from '../shared/consolidation.ts';
+import { findHabits, type HabitGame, type Habits } from '../shared/habits.ts';
 import type {
+  GameArchivePage,
   PlayerColor,
   PositionEval,
   RepertoireJob,
@@ -26,8 +28,10 @@ import {
   FREQUENCY_CACHE_FILE,
   FREQUENCY_SPACING_MS,
   FREQUENCY_SPEEDS,
+  HABITS,
   REPERTOIRES_DIR,
 } from './config.ts';
+import { listGames } from './chesscom.ts';
 import { Evaluator } from './evaluator.ts';
 import { errorMessage, HttpError } from './http.ts';
 import { explore, ratings as ratingBuckets } from './lichess.ts';
@@ -42,6 +46,8 @@ type Stored = {
   settings: RepertoireSettings;
   changes: Change[];
   dismissed: string[];
+  /** The player's recent games as this repertoire's side, cut to their openings. */
+  games?: { username: string; fetchedAt: string; list: HabitGame[] };
 };
 
 type Computed = {
@@ -53,7 +59,11 @@ type Computed = {
   changePaths: Map<string, string[]>;
   rules: Rule[];
   findings: Finding[];
+  habits: Habits | null;
 };
+
+/** A page of a player's games, newest first, ending before `before` when given. */
+export type GameLoader = (username: string, before?: number) => Promise<GameArchivePage>;
 
 /** Share of games in which each move was played from a position, by SAN. */
 export type Frequencies = Record<string, number>;
@@ -113,6 +123,7 @@ export type RepertoireOptions = {
   evaluator?: Pick<Evaluator, 'cached' | 'evaluate' | 'release' | 'dispose'>;
   frequencyFile?: string;
   loadFrequencies?: FrequencyLoader;
+  loadGames?: GameLoader;
   /** How long to wait after the explorer reports its rate limit. */
   rateLimitWaitMs?: number;
   /** Gap between explorer requests, across all repertoires being analysed. */
@@ -128,6 +139,7 @@ export class RepertoireService {
   private readonly evaluator: NonNullable<RepertoireOptions['evaluator']>;
   private readonly frequencies: JsonCache<Frequencies>;
   private readonly loadFrequencies: FrequencyLoader;
+  private readonly loadGames: GameLoader;
   private readonly rateLimitWaitMs: number;
   private readonly frequencySpacingMs: number;
   private nextFrequencyAt = 0;
@@ -140,6 +152,7 @@ export class RepertoireService {
     this.evaluator = options.evaluator ?? new Evaluator(EVAL_CACHE_FILE);
     this.frequencies = new JsonCache(options.frequencyFile ?? FREQUENCY_CACHE_FILE);
     this.loadFrequencies = options.loadFrequencies ?? lichessFrequencies;
+    this.loadGames = options.loadGames ?? listGames;
     this.rateLimitWaitMs = options.rateLimitWaitMs ?? 65_000;
     this.frequencySpacingMs = options.frequencySpacingMs ?? FREQUENCY_SPACING_MS;
   }
@@ -165,7 +178,7 @@ export class RepertoireService {
 
   /** The working graph and its findings, recomputed only when the accepted changes differ. */
   private compute(stored: Stored): Computed {
-    const version = stored.changes.map(change => change.id).join(',');
+    const version = `${stored.changes.map(change => change.id).join(',')}|${stored.games?.fetchedAt}`;
     const known = this.computed.get(stored.id);
     if (known?.version === version) return known;
     const base = buildGraph(stored.pgn, stored.side);
@@ -185,6 +198,7 @@ export class RepertoireService {
       skipped,
       changePaths,
       ...findConsolidations(graph),
+      habits: stored.games ? findHabits(graph, stored.games.list) : null,
     };
     this.computed.set(stored.id, result);
     return result;
@@ -257,7 +271,11 @@ export class RepertoireService {
   private targets(stored: Stored, computed: Computed) {
     const nodes = Object.values(computed.graph.nodes);
     const fens = new Map(nodes.map(node => [node.key, node.fen]));
-    for (const finding of computed.findings) fens.set(finding.after.key, finding.after.fen);
+    const proposals = [
+      ...computed.findings,
+      ...(computed.habits?.habits.map(habit => habit.finding) ?? []),
+    ];
+    for (const finding of proposals) fens.set(finding.after.key, finding.after.fen);
     return {
       evals: [...fens].map(([key, fen]) => ({ key, fen })),
       frequencies: nodes.filter(node => !isMine(computed.graph, node) && node.moves.length),
@@ -298,6 +316,14 @@ export class RepertoireService {
       rules: computed.rules,
       findings: computed.findings,
       dismissed: stored.dismissed,
+      habits:
+        computed.habits && stored.games
+          ? {
+              ...computed.habits,
+              username: stored.games.username,
+              fetchedAt: stored.games.fetchedAt,
+            }
+          : null,
       changes: stored.changes.map(change => ({
         ...change,
         active: !computed.skipped.has(change.id),
@@ -314,7 +340,10 @@ export class RepertoireService {
   /** Records the finding as a deviation from the import and applies it. */
   accept(id: string, findingId: unknown): RepertoireReport {
     const stored = this.load(id);
-    const finding = this.compute(stored).findings.find(item => item.id === findingId);
+    const computed = this.compute(stored);
+    const finding =
+      computed.findings.find(item => item.id === findingId) ??
+      computed.habits?.habits.find(habit => habit.finding.id === findingId)?.finding;
     if (!finding) throw new HttpError(404, 'That proposal no longer applies');
     stored.changes.push({
       id: randomUUID(),
@@ -324,6 +353,36 @@ export class RepertoireService {
       plan: finding.plan,
       acceptedAt: new Date().toISOString(),
     });
+    this.save(stored);
+    return this.resume(id);
+  }
+
+  /**
+   * Fetches the player's recent chess.com games and keeps the openings of those
+   * played as this repertoire's side, to be compared with it.
+   */
+  async syncGames(id: string, username: unknown): Promise<RepertoireReport> {
+    this.load(id);
+    if (typeof username !== 'string') throw new HttpError(400, 'Enter a chess.com username');
+    const list: HabitGame[] = [];
+    let name = username;
+    let before: number | undefined;
+    for (let page = 0, seen = 0; page < HABITS.pages && seen < HABITS.games; page++) {
+      const { username: spelled, games, older } = await this.loadGames(username, before);
+      name = spelled;
+      seen += games.length;
+      // Loaded again here: the repertoire may have been changed while the pages were fetched.
+      const { side } = this.load(id);
+      for (const game of games) {
+        if (game.playerColor !== side) continue;
+        const { url, playedAt, moves } = game;
+        list.push({ url, playedAt, moves: moves.slice(0, HABITS.plies) });
+      }
+      if (older === null) break;
+      before = older;
+    }
+    const stored = this.load(id);
+    stored.games = { username: name, fetchedAt: new Date().toISOString(), list };
     this.save(stored);
     return this.resume(id);
   }

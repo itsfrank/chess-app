@@ -113,6 +113,7 @@ export function createApp(options: AppOptions): Server {
       if (action === 'revert') return repertoires.revert(id, body.changeId);
       if (action === 'dismiss') return repertoires.dismiss(id, body.findingId, body.dismissed);
       if (action === 'analyze') return repertoires.analyze(id, body.ratings);
+      if (action === 'games') return repertoires.syncGames(id, body.username);
       if (action === 'stop') return repertoires.stop(id) ?? repertoires.report(id);
       throw new HttpError(404, 'Not found');
     });
