@@ -13,7 +13,10 @@
  * points, and a judge model says which of them the answer conveys.
  *
  *   npm run eval -- <label> [--models a,b,c] [--suites mine,tactics,ideas] [--games 6] [--api URL]
+ *   npm run eval -- regrade <label>                 grade stored answers again
  *   npm run eval -- compare <label> <label>
+ *
+ * Grading runs on Claude through the bridge by default (`--extractor`, `--judge`).
  *
  * The questions from the player's games are chosen once and kept in
  * `.data/evals/cases.json`, so later runs answer the same ones; delete the
@@ -38,8 +41,8 @@ import type {
   SettingsInfo,
 } from '../shared/protocol.ts';
 import { explainPrompt, numberedMove, reviewGame } from '../shared/quality.ts';
-import { promptOnly } from '../server/chat.ts';
-import { DATA_DIR, MODEL_PROVIDER, PORT } from '../server/config.ts';
+import { createBridgeSession, promptOnly } from '../server/chat.ts';
+import { CLAUDE_BRIDGE, DATA_DIR, PORT, splitModel } from '../server/config.ts';
 import { lineFacts, positionFacts } from '../server/facts.ts';
 import { EXTRACTOR_PROMPT, parseClaims, verify, type Claim, type Verdict } from './claims.ts';
 import type { Tactic } from './fetch-tactics.ts';
@@ -53,9 +56,10 @@ const here = (file: string) => fileURLToPath(new URL(file, import.meta.url));
 const DIR = join(DATA_DIR, 'evals');
 const CASES_FILE = join(DIR, 'cases.json');
 const DEFAULT_MODELS = ['gpt-6-luna', 'gpt-6.1-terra', 'gpt-6.1-sol'];
-const EXTRACTOR = 'gpt-6.1-sol';
-/** Not one of the models being measured. */
-const JUDGE = 'gpt-6.2-sol';
+/** Writes down the claims in an answer; whether they are true is then decided by the rules. */
+const EXTRACTOR = option('extractor') ?? 'claude-bridge/claude-sonnet-5-5';
+/** Says which reference points an answer conveys. */
+const JUDGE = option('judge') ?? 'claude-bridge/claude-opus-5-5';
 const SUITES = ['mine', 'tactics', 'ideas'] as const;
 type Suite = (typeof SUITES)[number];
 
@@ -86,6 +90,8 @@ type Answer = {
 type Results = {
   label: string;
   ranAt: string;
+  /** The models that graded the answers; absent in results from before they were recorded. */
+  graders?: { extractor: string; judge: string };
   suiteOf: Record<string, Suite>;
   models: Record<string, Answer[]>;
 };
@@ -266,18 +272,28 @@ async function complete(
   systemPrompt: string,
   message: string,
 ): Promise<string> {
-  const model = runtime.getModel(MODEL_PROVIDER, modelId);
-  if (!model) throw new Error(`${modelId} is unavailable`);
-  const { session } = await createAgentSession({
-    modelRuntime: runtime,
-    model,
-    thinkingLevel: effort,
-    resourceLoader: promptOnly(systemPrompt),
-    tools: [],
-    customTools: [],
-    settingsManager: SettingsManager.inMemory(),
-    sessionManager: SessionManager.inMemory(),
-  });
+  const { provider, id } = splitModel(modelId);
+  let session;
+  if (provider === CLAUDE_BRIDGE.provider) {
+    session = await createBridgeSession(runtime, systemPrompt);
+    const model = runtime.getModel(provider, id);
+    if (!model) throw new Error(`${modelId} is unavailable`);
+    await session.setModel(model);
+    session.setThinkingLevel(effort);
+  } else {
+    const model = runtime.getModel(provider, id);
+    if (!model) throw new Error(`${modelId} is unavailable`);
+    ({ session } = await createAgentSession({
+      modelRuntime: runtime,
+      model,
+      thinkingLevel: effort,
+      resourceLoader: promptOnly(systemPrompt),
+      tools: [],
+      customTools: [],
+      settingsManager: SettingsManager.inMemory(),
+      sessionManager: SessionManager.inMemory(),
+    }));
+  }
   let reply = '';
   session.subscribe(event => {
     if (event.type === 'message_update' && event.assistantMessageEvent.type === 'text_delta')
@@ -394,16 +410,37 @@ function report(results: Results) {
   }
 }
 
-async function run(label: string, models: string[], suites: Suite[], games: number) {
+/** The questions of the chosen suites; the player's own are chosen on first use and then kept. */
+async function loadCases(suites: readonly Suite[], games: number): Promise<Case[]> {
   mkdirSync(DIR, { recursive: true });
   if (suites.includes('mine') && !existsSync(CASES_FILE)) {
     writeFileSync(CASES_FILE, JSON.stringify(await chooseMine(games)));
   }
-  const cases: Case[] = [
+  return [
     ...(suites.includes('mine') ? (JSON.parse(readFileSync(CASES_FILE, 'utf8')) as Case[]) : []),
     ...(suites.includes('tactics') ? tacticCases() : []),
     ...(suites.includes('ideas') ? ideaCases() : []),
   ];
+}
+
+const save = (results: Results) =>
+  writeFileSync(join(DIR, `${results.label}.json`), JSON.stringify(results, null, 2));
+
+/** Extracts and checks the claims of every answer and judges it against its reference points. */
+async function grade(runtime: ModelRuntime, cases: Case[], answers: Reply[]): Promise<Answer[]> {
+  return pool(answers, 4, async (answer): Promise<Answer> => {
+    const test = cases.find(item => item.id === answer.case);
+    if (!test) return { ...answer, claims: [], covered: [] };
+    const [claims, covered] = await Promise.all([
+      checkClaims(runtime, test, answer.text).catch(() => []),
+      judge(runtime, test, answer.text).catch(() => test.rubric.map(() => false)),
+    ]);
+    return { ...answer, claims, covered };
+  });
+}
+
+async function run(label: string, models: string[], suites: Suite[], games: number) {
+  const cases = await loadCases(suites, games);
   const suiteOf = Object.fromEntries(cases.map(test => [test.id, test.suite]));
   const counts = SUITES.map(
     suite => `${cases.filter(test => test.suite === suite).length} ${suite}`,
@@ -414,22 +451,20 @@ async function run(label: string, models: string[], suites: Suite[], games: numb
   const original = (await json<SettingsInfo>('/api/settings')).settings;
   const use = (changes: Partial<Settings>) =>
     json('/api/settings', { method: 'PUT', body: JSON.stringify(changes) });
-  const results: Results = { label, ranAt: new Date().toISOString(), suiteOf, models: {} };
+  const graders = { extractor: EXTRACTOR, judge: JUDGE };
+  const results: Results = { label, ranAt: new Date().toISOString(), graders, suiteOf, models: {} };
   try {
     for (const model of models) {
       // A conversation keeps the model it started with, so one model is asked at a time.
       await use({ model, effort: 'medium' });
       const answers = await pool(cases, 4, ask);
       console.log(`${model}: answered`);
-      results.models[model] = await pool(answers, 6, async (answer): Promise<Answer> => {
-        const test = cases.find(item => item.id === answer.case)!;
-        const [claims, covered] = await Promise.all([
-          checkClaims(runtime, test, answer.text).catch(() => []),
-          judge(runtime, test, answer.text).catch(() => test.rubric.map(() => false)),
-        ]);
-        return { ...answer, claims, covered };
-      });
-      writeFileSync(join(DIR, `${label}.json`), JSON.stringify(results, null, 2));
+      // Kept before grading, so that answers survive a grading run that is cut short.
+      results.models[model] = answers.map(answer => ({ ...answer, claims: [], covered: [] }));
+      save(results);
+      results.models[model] = await grade(runtime, cases, answers);
+      save(results);
+      console.log(`${model}: graded`);
     }
   } finally {
     await use({ model: original.model, effort: original.effort });
@@ -437,9 +472,26 @@ async function run(label: string, models: string[], suites: Suite[], games: numb
   report(results);
 }
 
+/** Grades the stored answers of an earlier run again with the current graders. */
+async function regrade(label: string) {
+  const results = load(label);
+  const cases = await loadCases(SUITES, 0);
+  const runtime = await ModelRuntime.create();
+  results.graders = { extractor: EXTRACTOR, judge: JUDGE };
+  for (const [model, answers] of Object.entries(results.models)) {
+    results.models[model] = await grade(runtime, cases, answers);
+    save(results);
+    console.log(`${model}: graded`);
+  }
+  report(results);
+}
+
 const [command] = args;
 if (command === 'compare') args.slice(1, 3).forEach(label => report(load(label)));
-else if (!command || command.startsWith('--')) {
+else if (command === 'regrade') {
+  await regrade(args[1]);
+  process.exit(0);
+} else if (!command || command.startsWith('--')) {
   console.log('usage: npm run eval -- <label> [--models a,b] [--suites mine,tactics,ideas]');
 } else {
   await run(

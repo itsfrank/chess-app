@@ -29,7 +29,8 @@ export function mergeSettings(current: Settings, input: unknown, models?: string
   }
   if (patch.model !== undefined) {
     const model = patch.model;
-    if (typeof model !== 'string' || !/^[\w.-]{1,60}$/.test(model)) throw invalid('model');
+    if (typeof model !== 'string' || !/^([\w-]{1,30}\/)?[\w.-]{1,60}$/.test(model))
+      throw invalid('model');
     if (model !== current.model && models?.length && !models.includes(model))
       throw new HttpError(400, `Model ${model} is not available with your Pi login`);
     next.model = model;

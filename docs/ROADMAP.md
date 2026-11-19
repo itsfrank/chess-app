@@ -14,9 +14,22 @@ settings, roughly in order of value. Move an item out of this list when it ships
    | Answers with a false board claim, without → with facts (of 75) | 6 → 7      | 11 → 2        | 4 → 3       |
    | Positional reference points conveyed, without → with facts     | 12% → 6%   | 17% → 16%     | 26% → 21%   |
 
-   Tactics are close to solved for Terra and Sol. Positional ideas are not: no model conveys more
-   than about a quarter of the annotators' reasoning, and facts about attacks pull the answers
-   further towards attacks. Still open:
+   A second run added Claude models (through the Claude bridge) and moved grading to Claude:
+   Sonnet 5.5 extracts claims, Opus 5.5 judges. Same 75 questions, with facts, all six models
+   graded alike:
+
+   |                                                    | Luna    | Terra   | Sol    | Haiku 5.5 | Sonnet 5.5 | Opus 5.5 |
+   | -------------------------------------------------- | ------- | ------- | ------ | --------- | ---------- | -------- |
+   | Tactics fully explained (of 20)                    | 12      | 20      | 20     | 15        | 18         | 19       |
+   | Positional reference points conveyed               | 6%      | 10%     | 19%    | 14%       | 19%        | 40%      |
+   | Positional answers with at least one point (of 31) | 5       | 8       | 15     | 11        | 13         | 23       |
+   | Answers with a false board claim (of 75)           | 6       | 2       | 3      | 5         | 10         | 5        |
+   | Seconds per answer                                 | 12      | 11      | 18     | 17        | 11         | 20       |
+   | Cost per answer (list price for Claude)            | $0.0008 | $0.0063 | $0.016 | $0.0018   | $0.023     | $0.057   |
+
+   Tactics are close to solved for Terra, Sol, Sonnet and Opus. Positional ideas are not: Opus is
+   clearly the best and still conveys well under half of the annotators' reasoning, and facts
+   about attacks pull the answers further towards attacks. Still open:
    - Give the companion positional facts and vocabulary: pawn structure, open and half-open files,
      outposts, good and bad bishops, weak squares, space, which pieces have no moves.
    - Let answers about ideas be longer and structured as plan, reason and what the alternative

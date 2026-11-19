@@ -1,7 +1,7 @@
 import { ModelRuntime } from '@earendil-works/pi-coding-agent';
 import { createApp } from './app.ts';
 import { ChatService } from './chat.ts';
-import { MODEL_PROVIDER, PORT, SETTINGS_FILE } from './config.ts';
+import { CLAUDE_BRIDGE, PORT, SETTINGS_FILE, splitModel } from './config.ts';
 import { GameReviewService } from './game-review.ts';
 import { MaiaOpponent } from './opponent.ts';
 import { Replay } from './recording.ts';
@@ -13,8 +13,9 @@ import { loadTotals } from './usage.ts';
 async function liveServices(gameReview: GameReviewService) {
   const modelRuntime = await ModelRuntime.create();
   // Not fatal: the model can be changed in the settings, which need the backend running.
-  if (!modelRuntime.getModel(MODEL_PROVIDER, settings.current.model)) {
-    console.warn(`Pi model ${MODEL_PROVIDER}/${settings.current.model} is unavailable.`);
+  const { provider, id } = splitModel(settings.current.model);
+  if (provider !== CLAUDE_BRIDGE.provider && !modelRuntime.getModel(provider, id)) {
+    console.warn(`Pi model ${provider}/${id} is unavailable.`);
   }
   const lifetime = loadTotals();
   return {

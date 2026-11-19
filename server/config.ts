@@ -1,4 +1,4 @@
-import { availableParallelism } from 'node:os';
+import { availableParallelism, homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 
@@ -17,8 +17,30 @@ export const FREQUENCY_CACHE_FILE = join(DATA_DIR, 'frequency-cache.json');
 
 export const PORT = Number(process.env.PORT || 3001);
 
-/** The provider of the companion's model; which model and effort is a setting, with no fallback. */
+/**
+ * The provider of the companion's model unless the setting names another as
+ * "provider/model"; which model and effort is a setting, with no fallback.
+ */
 export const MODEL_PROVIDER = 'openai-codex';
+/**
+ * Claude models through the user's Claude Code login, when the pi-claude-bridge
+ * extension is installed in Pi. It runs Claude Code with its own tools switched
+ * off, so the companion's three tools remain the only ones.
+ */
+export const CLAUDE_BRIDGE = {
+  provider: 'claude-bridge',
+  dir: join(homedir(), '.pi', 'agent', 'npm', 'node_modules', 'pi-claude-bridge'),
+  /** The provider whose catalogue prices estimate what a bridged turn would cost. */
+  pricedAs: 'anthropic',
+};
+
+/** The provider and model id of a model setting; a bare id belongs to the default provider. */
+export function splitModel(model: string): { provider: string; id: string } {
+  const slash = model.indexOf('/');
+  return slash < 0
+    ? { provider: MODEL_PROVIDER, id: model }
+    : { provider: model.slice(0, slash), id: model.slice(slash + 1) };
+}
 
 /** Analysis of the position on the board; how long it thinks is a setting. */
 export const ENGINE = {

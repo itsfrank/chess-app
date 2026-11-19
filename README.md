@@ -52,7 +52,10 @@ environment file's expanded values.
 - **chess.com username**: whose games **My games** lists and repertoires are compared with. This
   is the only place it is set.
 - **Companion**: the model, from those your Pi login can use, and its reasoning effort. A change
-  applies to conversations started afterwards.
+  applies to conversations started afterwards. If the `pi-claude-bridge` extension is installed
+  in Pi and Claude Code is logged in, Claude models are listed too, marked "(Claude Code)"; they
+  run on your Claude subscription, with Claude Code's own tools switched off, and their cost is
+  shown as an estimate at list price.
 - **Stockfish**: the depth of the game review pass (default 16), the depth for repertoire positions
   (default 18), and how many seconds the engine thinks about the position on the board for the
   analysis panel and the companion's checks (default 1.5). A stored result is used as long as it
@@ -273,8 +276,10 @@ of three models three kinds of question:
 
 Every answer has its concrete board claims written down by a model and decided by the rules of
 chess (`evals/claims.ts`). Tactics and ideas also have reference points, taken from the puzzle's
-solution or the published annotations, and a judge model that is not being measured says which of
-them the answer conveys. The report gives, per model and suite, the share of reference points
+solution or the published annotations, and a judge model says which of them the answer conveys.
+Grading runs on Claude through the bridge by default (Sonnet 5.5 extracts claims, Opus 5.5
+judges; `--extractor` and `--judge` change that), and `npm run eval -- regrade <label>` grades the
+stored answers of an earlier run again. The report gives, per model and suite, the share of reference points
 covered, false claims, seconds and estimated cost per answer. Results go to
 `.data/evals/<label>.json`; the questions from your own games are fixed in `.data/evals/cases.json`
 so runs are comparable; `--suites`, `--models` and `--api` narrow or redirect a run, and

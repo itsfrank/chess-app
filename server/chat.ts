@@ -1,9 +1,12 @@
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { dirname } from 'node:path';
 import type { ServerResponse } from 'node:http';
 import { Chess } from 'chess.js';
 import {
   createAgentSession,
   createExtensionRuntime,
+  DefaultResourceLoader,
   SessionManager,
   SettingsManager,
   type AgentSession,
@@ -12,7 +15,14 @@ import {
 } from '@earendil-works/pi-coding-agent';
 import type { ChatRequest, Effort, ServerEvent, Totals } from '../shared/protocol.ts';
 import { annotationErrors, repairAnnotations } from './annotation-feedback.ts';
-import { ENGINE, MAX_CONVERSATIONS, MODEL_PROVIDER, SESSIONS_DIR } from './config.ts';
+import {
+  CLAUDE_BRIDGE,
+  ENGINE,
+  MAX_CONVERSATIONS,
+  MODEL_PROVIDER,
+  SESSIONS_DIR,
+  splitModel,
+} from './config.ts';
 import { ConversationStore } from './conversations.ts';
 import { describeLine, describePosition } from './facts.ts';
 import { errorMessage, HttpError } from './http.ts';
@@ -25,7 +35,7 @@ import { emptyTotals, saveTotals } from './usage.ts';
 type Conversation = ToolContext & {
   id: string;
   /** Fixed when the conversation starts; later changes to the settings apply to new ones. */
-  model: { id: string; effort: Effort };
+  model: { provider: string; id: string; effort: Effort };
   recorder: Recorder;
   usage: Totals;
   session?: AgentSession;
@@ -55,6 +65,43 @@ function previousFen(moves: string[]): string | undefined {
   const board = new Chess();
   for (const san of moves.slice(0, -1)) board.move(san);
   return board.fen();
+}
+
+/**
+ * A session that loads only the Claude bridge extension, which registers the
+ * Claude provider on `modelRuntime`; the model is chosen afterwards. Everything
+ * else of the user's Pi setup stays out, as elsewhere.
+ */
+export async function createBridgeSession(
+  modelRuntime: ModelRuntime,
+  systemPrompt: string,
+  names: string[] = [],
+  tools: ReturnType<typeof createTools> = [],
+): Promise<AgentSession> {
+  const settingsManager = SettingsManager.inMemory();
+  const resourceLoader = new DefaultResourceLoader({
+    cwd: process.cwd(),
+    // The bridge lives under Pi's agent directory: …/agent/npm/node_modules/pi-claude-bridge.
+    agentDir: dirname(dirname(dirname(CLAUDE_BRIDGE.dir))),
+    settingsManager,
+    noExtensions: true,
+    additionalExtensionPaths: [CLAUDE_BRIDGE.dir],
+    noSkills: true,
+    noPromptTemplates: true,
+    noThemes: true,
+    noContextFiles: true,
+    systemPrompt,
+  });
+  await resourceLoader.reload();
+  const { session } = await createAgentSession({
+    modelRuntime,
+    resourceLoader,
+    tools: names,
+    customTools: tools,
+    settingsManager,
+    sessionManager: SessionManager.inMemory(),
+  });
+  return session;
 }
 
 const NDJSON = { 'Content-Type': 'application/x-ndjson', 'Cache-Control': 'no-cache' };
@@ -153,18 +200,50 @@ export class ChatService {
     return conversation;
   }
 
-  /** The companion's models that this Pi login can use right now. */
+  /** The companion's models that this Pi login can use right now, then any through Claude Code. */
   async models(): Promise<{ id: string; name: string }[]> {
     const available = await this.modelRuntime.getAvailable(MODEL_PROVIDER);
-    return available.map(({ id, name }) => ({ id, name }));
+    return [...available.map(({ id, name }) => ({ id, name })), ...(await this.bridged())];
+  }
+
+  private bridgeModels?: Promise<{ id: string; name: string }[]>;
+  /**
+   * Claude models offered by the bridge extension, listed once: the provider
+   * only exists after a session has loaded the extension.
+   */
+  private bridged() {
+    return (this.bridgeModels ??= (async () => {
+      if (!existsSync(CLAUDE_BRIDGE.dir)) return [];
+      try {
+        (await this.createBridgeSession([], [])).dispose();
+        return (
+          this.modelRuntime
+            .getModels(CLAUDE_BRIDGE.provider)
+            // Dated snapshots duplicate the plain names.
+            .filter(model => !/-\d{8}$/.test(model.id))
+            .map(({ id, name }) => ({
+              id: `${CLAUDE_BRIDGE.provider}/${id}`,
+              name: `${name} (Claude Code)`,
+            }))
+        );
+      } catch (error) {
+        console.warn(`Claude bridge unavailable: ${errorMessage(error)}`);
+        return [];
+      }
+    })());
+  }
+
+  private createBridgeSession(names: string[], tools: ReturnType<typeof createTools>) {
+    return createBridgeSession(this.modelRuntime, SYSTEM_PROMPT, names, tools);
   }
 
   private createConversation(id: string): Conversation {
     const { model, effort, analysisSeconds } = this.settings.current;
+    const { provider, id: modelId } = splitModel(model);
     const movetimeMs = analysisSeconds * 1000;
     const recorder = new Recorder(SESSIONS_DIR, {
       conversationId: id,
-      model: `${MODEL_PROVIDER}/${model}:${effort}`,
+      model: `${provider}/${modelId}:${effort}`,
       systemPrompt: SYSTEM_PROMPT,
       lifetime: { ...this.lifetime },
       engine: { ...ENGINE, movetime: movetimeMs },
@@ -172,7 +251,7 @@ export class ChatService {
     console.log(`Session recording: ${recorder.path}`);
     return {
       id,
-      model: { id: model, effort },
+      model: { provider, id: modelId, effort },
       movetimeMs,
       recorder,
       usage: emptyTotals(),
@@ -187,22 +266,34 @@ export class ChatService {
   private async createSession(conversation: Conversation): Promise<AgentSession> {
     const tools = createTools(conversation);
     const names = tools.map(tool => tool.name);
-    const model = this.modelRuntime.getModel(MODEL_PROVIDER, conversation.model.id);
-    if (!model) {
-      throw new Error(
-        `Pi model ${MODEL_PROVIDER}/${conversation.model.id} is unavailable; choose another in Settings.`,
-      );
+    const { provider, id, effort } = conversation.model;
+    const unavailable = () =>
+      new Error(`Pi model ${provider}/${id} is unavailable; choose another in Settings.`);
+    let session: AgentSession;
+    if (provider === CLAUDE_BRIDGE.provider) {
+      // The provider is registered by the extension, so the model can only be chosen afterwards.
+      session = await this.createBridgeSession(names, tools);
+      const model = this.modelRuntime.getModel(provider, id);
+      if (!model) {
+        session.dispose();
+        throw unavailable();
+      }
+      await session.setModel(model);
+      session.setThinkingLevel(effort);
+    } else {
+      const model = provider === MODEL_PROVIDER && this.modelRuntime.getModel(provider, id);
+      if (!model) throw unavailable();
+      ({ session } = await createAgentSession({
+        modelRuntime: this.modelRuntime,
+        model,
+        thinkingLevel: effort,
+        resourceLoader: promptOnly(SYSTEM_PROMPT),
+        tools: names,
+        customTools: tools,
+        settingsManager: SettingsManager.inMemory(),
+        sessionManager: SessionManager.inMemory(),
+      }));
     }
-    const { session } = await createAgentSession({
-      modelRuntime: this.modelRuntime,
-      model,
-      thinkingLevel: conversation.model.effort,
-      resourceLoader: promptOnly(SYSTEM_PROMPT),
-      tools: names,
-      customTools: tools,
-      settingsManager: SettingsManager.inMemory(),
-      sessionManager: SessionManager.inMemory(),
-    });
     // The agent must never gain coding tools; refuse to run if anything else is active.
     session.setActiveToolsByName(names);
     const active = session.getActiveToolNames();
@@ -233,7 +324,13 @@ export class ChatService {
         conversation.emit({ type: 'status', text: toolStatus[event.toolName] ?? 'Working…' });
       } else if (event.type === 'message_end' && event.message.role === 'assistant') {
         const { usage, stopReason, errorMessage } = event.message;
-        if (usage) this.addUsage(conversation, usage.totalTokens, usage.cost.total);
+        if (usage) {
+          this.addUsage(
+            conversation,
+            usage.totalTokens,
+            usage.cost.total || this.bridgedCost(conversation, usage),
+          );
+        }
         if (stopReason === 'error') modelError = errorMessage || 'Model request failed';
       }
     });
@@ -285,6 +382,27 @@ export class ChatService {
     } finally {
       unsubscribe();
     }
+  }
+
+  /**
+   * What a turn through the bridge would cost at the model's list price. The
+   * bridge reports none, because the turn runs on a Claude subscription.
+   */
+  private bridgedCost(
+    conversation: Conversation,
+    usage: { input: number; output: number; cacheRead: number; cacheWrite: number },
+  ): number {
+    const { provider, id } = conversation.model;
+    if (provider !== CLAUDE_BRIDGE.provider) return 0;
+    const price = this.modelRuntime.getModel(CLAUDE_BRIDGE.pricedAs, id)?.cost;
+    if (!price) return 0;
+    return (
+      (usage.input * price.input +
+        usage.output * price.output +
+        usage.cacheRead * price.cacheRead +
+        usage.cacheWrite * price.cacheWrite) /
+      1_000_000
+    );
   }
 
   private addUsage(conversation: Conversation, tokens: number, cost: number) {
