@@ -174,3 +174,42 @@ export type RepertoireReport = RepertoireSummary & {
   job: RepertoireJob;
   engineDepth: number;
 };
+
+/** Reasoning effort the companion's model can run at. */
+export const EFFORTS = ['low', 'medium', 'high'] as const;
+export type Effort = (typeof EFFORTS)[number];
+
+/** App-wide settings, kept by the backend so every screen and restart sees the same ones. */
+export type Settings = {
+  /** The player whose games the app lists and compares; empty until set. */
+  chesscomUsername: string;
+  /** The companion's model, as its id with the provider. */
+  model: string;
+  effort: Effort;
+  /** Stockfish depth of the pass over a reviewed game. */
+  gameReviewDepth: number;
+  /** Stockfish depth for every repertoire position and proposal. */
+  repertoireDepth: number;
+  /** Seconds Stockfish thinks about the position on the board, for the panel and the companion. */
+  analysisSeconds: number;
+};
+export const DEFAULT_SETTINGS: Settings = {
+  chesscomUsername: '',
+  model: 'gpt-6.1-sol',
+  effort: 'medium',
+  gameReviewDepth: 16,
+  repertoireDepth: 18,
+  analysisSeconds: 1.5,
+};
+/** Allowed range of each numeric setting. */
+export const SETTING_LIMITS = {
+  gameReviewDepth: { min: 8, max: 24, step: 1 },
+  repertoireDepth: { min: 10, max: 26, step: 1 },
+  analysisSeconds: { min: 0.5, max: 8, step: 0.5 },
+} as const;
+
+export type SettingsInfo = {
+  settings: Settings;
+  /** Models the companion could use; empty when they cannot be listed, as during a replay. */
+  models: { id: string; name: string }[];
+};

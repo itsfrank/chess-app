@@ -9,6 +9,8 @@ import type {
   RepertoireReport,
   RepertoireSummary,
   ServerEvent,
+  Settings,
+  SettingsInfo,
   Totals,
 } from '../shared/protocol';
 
@@ -29,6 +31,24 @@ const postJson = (url: string, body: unknown, signal: AbortSignal) =>
     body: JSON.stringify(body),
     signal,
   });
+
+/** The app's settings and the models the companion can be set to. */
+export async function fetchSettings(): Promise<SettingsInfo> {
+  const response = await fetch('/api/settings');
+  if (!response.ok) throw await failure(response);
+  return response.json();
+}
+
+/** Changes the given settings and answers with all of them. */
+export async function saveSettings(changes: Partial<Settings>): Promise<SettingsInfo> {
+  const response = await fetch('/api/settings', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(changes),
+  });
+  if (!response.ok) throw await failure(response);
+  return response.json();
+}
 
 export async function fetchLifetimeUsage(signal: AbortSignal): Promise<Totals> {
   const response = await fetch('/api/usage', { signal });

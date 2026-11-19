@@ -3,14 +3,15 @@ import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { dirname, join } from 'node:path';
 import { findConsolidations, type Finding, type Rule } from '../shared/consolidation.ts';
 import { findHabits, type HabitGame, type Habits } from '../shared/habits.ts';
-import type {
-  GameArchivePage,
-  PlayerColor,
-  PositionEval,
-  RepertoireJob,
-  RepertoireReport,
-  RepertoireSettings,
-  RepertoireSummary,
+import {
+  DEFAULT_SETTINGS,
+  type GameArchivePage,
+  type PlayerColor,
+  type PositionEval,
+  type RepertoireJob,
+  type RepertoireReport,
+  type RepertoireSettings,
+  type RepertoireSummary,
 } from '../shared/protocol.ts';
 import {
   applyChanges,
@@ -22,7 +23,6 @@ import {
 } from '../shared/repertoire.ts';
 import { reachProbabilities } from '../shared/soundness.ts';
 import {
-  BATCH_ENGINE,
   DEFAULT_RATINGS,
   EVAL_CACHE_FILE,
   FREQUENCY_CACHE_FILE,
@@ -124,6 +124,8 @@ export type RepertoireOptions = {
   frequencyFile?: string;
   loadFrequencies?: FrequencyLoader;
   loadGames?: GameLoader;
+  /** The engine depth to analyse at, asked for before every search. */
+  depth?: () => number;
   /** How long to wait after the explorer reports its rate limit. */
   rateLimitWaitMs?: number;
   /** Gap between explorer requests, across all repertoires being analysed. */
@@ -140,6 +142,7 @@ export class RepertoireService {
   private readonly frequencies: JsonCache<Frequencies>;
   private readonly loadFrequencies: FrequencyLoader;
   private readonly loadGames: GameLoader;
+  private readonly depth: () => number;
   private readonly rateLimitWaitMs: number;
   private readonly frequencySpacingMs: number;
   private nextFrequencyAt = 0;
@@ -149,7 +152,8 @@ export class RepertoireService {
 
   constructor(options: RepertoireOptions = {}) {
     this.dir = options.dir ?? REPERTOIRES_DIR;
-    this.evaluator = options.evaluator ?? new Evaluator(EVAL_CACHE_FILE);
+    this.depth = options.depth ?? (() => DEFAULT_SETTINGS.repertoireDepth);
+    this.evaluator = options.evaluator ?? new Evaluator(EVAL_CACHE_FILE, this.depth);
     this.frequencies = new JsonCache(options.frequencyFile ?? FREQUENCY_CACHE_FILE);
     this.loadFrequencies = options.loadFrequencies ?? lichessFrequencies;
     this.loadGames = options.loadGames ?? listGames;
@@ -333,7 +337,7 @@ export class RepertoireService {
       reach: reachProbabilities(computed.graph, frequencies),
       reachComplete: frequencyDone === targets.frequencies.length,
       job,
-      engineDepth: BATCH_ENGINE.depth,
+      engineDepth: this.depth(),
     };
   }
 

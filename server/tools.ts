@@ -21,6 +21,8 @@ export type ToolContext = {
   arrows: Annotation[];
   emit: (event: ServerEvent) => void;
   traceUci: UciTrace;
+  /** How long the engine thinks per call, in milliseconds. */
+  movetimeMs: number;
 };
 
 export const MAX_HYPOTHETICAL_MOVES = 20;
@@ -56,7 +58,13 @@ export function createTools(context: ToolContext) {
         if (args.beforeLastMove && !context.previousFen)
           throw new Error('The snapshot has no earlier move');
         const start = args.beforeLastMove ? context.previousFen! : context.fen;
-        const result = await analyze(start, args.moves, signal, context.traceUci);
+        const result = await analyze(
+          start,
+          args.moves,
+          signal,
+          context.traceUci,
+          context.movetimeMs,
+        );
         context.emit({ type: 'analysis', result });
         return textResult(result);
       },

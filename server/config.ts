@@ -5,6 +5,7 @@ import { join } from 'node:path';
 /** Git-ignored local state: usage totals, recordings, tokens and the Maia3 install. */
 export const DATA_DIR = fileURLToPath(new URL('../.data', import.meta.url));
 export const SESSIONS_DIR = join(DATA_DIR, 'sessions');
+export const SETTINGS_FILE = join(DATA_DIR, 'settings.json');
 export const USAGE_FILE = join(DATA_DIR, 'usage.json');
 export const LICHESS_TOKEN_FILE = join(DATA_DIR, 'lichess-token');
 export const MAIA_DIR = join(DATA_DIR, 'maia3-spike');
@@ -16,36 +17,28 @@ export const FREQUENCY_CACHE_FILE = join(DATA_DIR, 'frequency-cache.json');
 
 export const PORT = Number(process.env.PORT || 3001);
 
-/**
- * The only model the companion uses; there is deliberately no fallback.
- * `CHESS_MODEL` picks another model of the same provider and `CHESS_THINKING`
- * its reasoning effort, for comparing models.
- */
-export const MODEL = {
-  provider: 'openai-codex',
-  id: process.env.CHESS_MODEL || 'gpt-6.1-sol',
-  thinking: process.env.CHESS_THINKING || 'medium',
-};
-export const MODEL_NAME = `${MODEL.provider}/${MODEL.id}:${MODEL.thinking}`;
+/** The provider of the companion's model; which model and effort is a setting, with no fallback. */
+export const MODEL_PROVIDER = 'openai-codex';
 
+/** Analysis of the position on the board; how long it thinks is a setting. */
 export const ENGINE = {
   path: process.env.STOCKFISH_PATH || 'stockfish',
-  movetime: 1500,
   multiPV: 3,
   threads: 1,
   hashMB: 32,
 };
-export const ENGINE_TIMEOUT_MS = 10_000;
+/** Allowed on top of the thinking time before a search counts as hung. */
+export const ENGINE_GRACE_MS = 8500;
 
-/** Repertoire analysis: every position is searched once to a fixed depth so scores are comparable. */
+/**
+ * Repertoire analysis and game review: every position is searched once to a
+ * fixed depth, which is a setting, so scores are comparable.
+ */
 export const BATCH_ENGINE = {
-  depth: 18,
   threads: Math.max(1, Math.min(6, availableParallelism() - 2)),
   hashMB: 128,
   timeoutMs: 120_000,
 };
-/** Game review searches every position of a game while the user waits, so it is shallower. */
-export const GAME_REVIEW_DEPTH = 16;
 export const MAX_REVIEW_MOVES = 600;
 /**
  * Opening theory, approximated by what strong Lichess players actually play: a move is book while

@@ -1,14 +1,8 @@
 import { Chess } from 'chess.js';
-import type { PositionEval } from '../shared/protocol.ts';
+import { DEFAULT_SETTINGS, type PositionEval } from '../shared/protocol.ts';
 import { positionKey } from '../shared/repertoire.ts';
 import { ERROR_LOSS, numberedMove, reviewGame, type QualityId } from '../shared/quality.ts';
-import {
-  BOOK,
-  BOOK_CACHE_FILE,
-  GAME_EVAL_CACHE_FILE,
-  GAME_REVIEW_DEPTH,
-  MAX_REVIEW_MOVES,
-} from './config.ts';
+import { BOOK, BOOK_CACHE_FILE, GAME_EVAL_CACHE_FILE, MAX_REVIEW_MOVES } from './config.ts';
 import { Evaluator } from './evaluator.ts';
 import { HttpError } from './http.ts';
 import { explore } from './lichess.ts';
@@ -60,6 +54,8 @@ export type GameReviewOptions = {
   evaluator?: Pick<Evaluator, 'cached' | 'evaluate' | 'release' | 'dispose'>;
   loadBook?: BookLoader;
   bookFile?: string;
+  /** The engine depth to review at, asked for before every search. */
+  depth?: () => number;
 };
 
 /**
@@ -73,10 +69,12 @@ export class GameReviewService {
   private readonly loadBook: BookLoader;
   /** Book moves by position, so each opening position is looked up once. */
   private readonly book: JsonCache<string[]>;
+  private readonly depth: () => number;
   private running = 0;
 
   constructor(options: GameReviewOptions = {}) {
-    this.evaluator = options.evaluator ?? new Evaluator(GAME_EVAL_CACHE_FILE, GAME_REVIEW_DEPTH, 2);
+    this.depth = options.depth ?? (() => DEFAULT_SETTINGS.gameReviewDepth);
+    this.evaluator = options.evaluator ?? new Evaluator(GAME_EVAL_CACHE_FILE, this.depth, 2);
     this.loadBook = options.loadBook ?? lichessBook;
     this.book = new JsonCache(options.bookFile ?? BOOK_CACHE_FILE);
   }
@@ -148,7 +146,7 @@ export class GameReviewService {
         move?.quality.id === id ? numberedMove(index, moves[index]) : [],
       );
     return {
-      engine: `Stockfish depth ${GAME_REVIEW_DEPTH}`,
+      engine: `Stockfish depth ${this.depth()}`,
       white: side(review.white),
       black: side(review.black),
       /** The last move that was still opening theory. */

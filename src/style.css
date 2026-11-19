@@ -997,3 +997,43 @@ button.finding-eval {
   border: 1px solid var(--line-strong);
   border-radius: 4px;
 }
+
+/* Settings dialog */
+.settings-backdrop {
+  background: #000a;
+}
+.settings-dialog h2 {
+  font: 600 16px/1.3 var(--sans);
+}
+.settings-dialog input {
+  font: inherit;
+  padding: 6px 8px;
+  color: var(--ink);
+  background: var(--canvas);
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+}
+.settings-number input {
+  width: 100%;
+  font-variant-numeric: tabular-nums;
+}
+.settings-number > span:first-child {
+  font-size: 13.5px;
+  color: var(--prose);
+}
+.settings-error {
+  font-size: 13px;
+  color: var(--warning);
+}
+.settings-actions button {
+  padding: 7px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  font-size: 13px;
+}
+.settings-actions button:hover:not(:disabled) {
+  background: #ffffff0a;
+}
+.settings-actions .start-game {
+  font-weight: 600;
+}

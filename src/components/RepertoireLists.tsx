@@ -4,7 +4,7 @@ import { isCommon, type Habit } from '../../shared/habits';
 import type { RepertoireReport } from '../../shared/protocol';
 import { formatPath } from '../../shared/repertoire';
 import type { Audit, Verdict } from '../../shared/soundness';
-import { USERNAME_KEY } from '../hooks/useGames';
+import { useSettings } from '../settings';
 import type { View } from './Repertoire';
 
 /** Repertoire moves losing at least this many centipawns to the engine's choice are listed. */
@@ -264,9 +264,8 @@ export function HabitList(
 ) {
   const { report, busy, onSync } = props;
   const { habits } = report;
-  const [name, setName] = useState(
-    () => habits?.username ?? localStorage.getItem(USERNAME_KEY) ?? '',
-  );
+  const { settings, save } = useSettings();
+  const [name, setName] = useState(() => habits?.username ?? settings.chesscomUsername);
   return (
     <>
       <form
@@ -274,7 +273,9 @@ export function HabitList(
         onSubmit={event => {
           event.preventDefault();
           if (!name.trim()) return;
-          localStorage.setItem(USERNAME_KEY, name.trim());
+          // The first player looked up is taken to be the user.
+          if (!settings.chesscomUsername)
+            void save({ chesscomUsername: name.trim() }).catch(() => {});
           onSync(name.trim());
         }}
       >

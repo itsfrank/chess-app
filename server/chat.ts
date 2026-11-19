@@ -7,25 +7,24 @@ import {
   SessionManager,
   SettingsManager,
   type AgentSession,
-  type CreateAgentSessionOptions,
   type ModelRuntime,
   type ResourceLoader,
 } from '@earendil-works/pi-coding-agent';
-import type { ChatRequest, ServerEvent, Totals } from '../shared/protocol.ts';
+import type { ChatRequest, Effort, ServerEvent, Totals } from '../shared/protocol.ts';
 import { annotationErrors, repairAnnotations } from './annotation-feedback.ts';
-import { ENGINE, MAX_CONVERSATIONS, MODEL, MODEL_NAME, SESSIONS_DIR } from './config.ts';
+import { ENGINE, MAX_CONVERSATIONS, MODEL_PROVIDER, SESSIONS_DIR } from './config.ts';
 import { ConversationStore } from './conversations.ts';
 import { errorMessage, HttpError } from './http.ts';
 import { SYSTEM_PROMPT } from './prompt.ts';
 import { Recorder } from './recording.ts';
+import type { SettingsStore } from './settings.ts';
 import { createTools, toolStatus, type ToolContext } from './tools.ts';
 import { emptyTotals, saveTotals } from './usage.ts';
 
-type ThinkingLevel = CreateAgentSessionOptions['thinkingLevel'];
-export type Model = NonNullable<ReturnType<ModelRuntime['getModel']>>;
-
 type Conversation = ToolContext & {
   id: string;
+  /** Fixed when the conversation starts; later changes to the settings apply to new ones. */
+  model: { id: string; effort: Effort };
   recorder: Recorder;
   usage: Totals;
   session?: AgentSession;
@@ -63,7 +62,7 @@ export const eventLine = (event: ServerEvent) => JSON.stringify(event) + '\n';
 /** Live chat: one agent session per conversation, one turn at a time, every turn recorded. */
 export class ChatService {
   private readonly modelRuntime: ModelRuntime;
-  private readonly model: Model;
+  private readonly settings: SettingsStore;
   /** Shared with the usage endpoint and mutated as turns report usage. */
   private readonly lifetime: Totals;
   private readonly reviewGame?: (moves: string[]) => unknown;
@@ -75,14 +74,14 @@ export class ChatService {
 
   constructor(options: {
     modelRuntime: ModelRuntime;
-    model: Model;
+    settings: SettingsStore;
     lifetime: Totals;
     /** The engine's review of a finished game, once it is complete. */
     reviewGame?: (moves: string[]) => unknown;
   }) {
     this.reviewGame = options.reviewGame;
     this.modelRuntime = options.modelRuntime;
-    this.model = options.model;
+    this.settings = options.settings;
     this.lifetime = options.lifetime;
   }
 
@@ -104,6 +103,7 @@ export class ChatService {
     const { message, fen, moves, playerColor, game } = request;
     recorder.record('request', { message, fen, moves, playerColor, ...(game && { game }) });
     conversation.fen = fen;
+    conversation.movetimeMs = this.settings.current.analysisSeconds * 1000;
     conversation.previousFen = previousFen(moves);
     conversation.arrows = [];
     conversation.emit = event => {
@@ -152,17 +152,27 @@ export class ChatService {
     return conversation;
   }
 
+  /** The companion's models that this Pi login can use right now. */
+  async models(): Promise<{ id: string; name: string }[]> {
+    const available = await this.modelRuntime.getAvailable(MODEL_PROVIDER);
+    return available.map(({ id, name }) => ({ id, name }));
+  }
+
   private createConversation(id: string): Conversation {
+    const { model, effort, analysisSeconds } = this.settings.current;
+    const movetimeMs = analysisSeconds * 1000;
     const recorder = new Recorder(SESSIONS_DIR, {
       conversationId: id,
-      model: MODEL_NAME,
+      model: `${MODEL_PROVIDER}/${model}:${effort}`,
       systemPrompt: SYSTEM_PROMPT,
       lifetime: { ...this.lifetime },
-      engine: ENGINE,
+      engine: { ...ENGINE, movetime: movetimeMs },
     });
     console.log(`Session recording: ${recorder.path}`);
     return {
       id,
+      model: { id: model, effort },
+      movetimeMs,
       recorder,
       usage: emptyTotals(),
       touched: Date.now(),
@@ -176,10 +186,16 @@ export class ChatService {
   private async createSession(conversation: Conversation): Promise<AgentSession> {
     const tools = createTools(conversation);
     const names = tools.map(tool => tool.name);
+    const model = this.modelRuntime.getModel(MODEL_PROVIDER, conversation.model.id);
+    if (!model) {
+      throw new Error(
+        `Pi model ${MODEL_PROVIDER}/${conversation.model.id} is unavailable; choose another in Settings.`,
+      );
+    }
     const { session } = await createAgentSession({
       modelRuntime: this.modelRuntime,
-      model: this.model,
-      thinkingLevel: MODEL.thinking as ThinkingLevel,
+      model,
+      thinkingLevel: conversation.model.effort,
       resourceLoader,
       tools: names,
       customTools: tools,

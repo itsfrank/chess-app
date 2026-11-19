@@ -12,9 +12,9 @@ list your games.
 
 - Node.js 22.12 or newer.
 - A native `stockfish` executable on `PATH` (or set `STOCKFISH_PATH`).
-- A Pi login that can use `openai-codex/gpt-6.1-sol`, which runs at medium reasoning effort. The
-  backend uses your existing local Pi credentials; they are never sent to the browser. There is no
-  fallback model.
+- A Pi login that can use an `openai-codex` model; the default is `gpt-6.1-sol` at medium reasoning
+  effort, and **Settings** changes it. The backend uses your existing local Pi credentials; they are
+  never sent to the browser. There is no fallback model.
 - Optional: Maia3 for opponent play and a Lichess token for move frequencies (both below).
 
 ## Run
@@ -27,16 +27,14 @@ npm run dev     # terminal 2: open the URL Vite prints
 
 Stockfish, Maia3 and the Lichess token are located through the environment variables below.
 
-| Variable         | Purpose                                                                  |
-| ---------------- | ------------------------------------------------------------------------ |
-| `PORT`           | API port (default 3001; the Vite proxy expects 3001).                    |
-| `STOCKFISH_PATH` | Stockfish executable, when it is not on `PATH`.                          |
-| `MAIA3_PATH`     | `maia3-uci` executable.                                                  |
-| `HF_HOME`        | Hugging Face cache holding the Maia3 weights.                            |
-| `LICHESS_TOKEN`  | Lichess personal access token for the opening explorer.                  |
-| `REPLAY_LOG`     | Serve a recorded session instead of the live model (see **Replay**).     |
-| `CHESS_MODEL`    | Another `openai-codex` model id for the companion, such as `gpt-6-luna`. |
-| `CHESS_THINKING` | Its reasoning effort (`low`, `medium`, `high`); default `medium`.        |
+| Variable         | Purpose                                                              |
+| ---------------- | -------------------------------------------------------------------- |
+| `PORT`           | API port (default 3001; the Vite proxy expects 3001).                |
+| `STOCKFISH_PATH` | Stockfish executable, when it is not on `PATH`.                      |
+| `MAIA3_PATH`     | `maia3-uci` executable.                                              |
+| `HF_HOME`        | Hugging Face cache holding the Maia3 weights.                        |
+| `LICHESS_TOKEN`  | Lichess personal access token for the opening explorer.              |
+| `REPLAY_LOG`     | Serve a recorded session instead of the live model (see **Replay**). |
 
 ### Shared setup on this machine
 
@@ -48,6 +46,20 @@ configuration. Other machines need their own setup. Do not commit credentials or
 environment file's expanded values.
 
 ## Using it
+
+**Settings**, in the bottom-left corner beside the screens, opens the settings that apply everywhere:
+
+- **chess.com username**: whose games **My games** lists when it opens and repertoires are compared
+  with. Either screen can still look up another player without changing it; the first player you
+  look up is saved here if the setting is empty.
+- **Companion**: the model, from those your Pi login can use, and its reasoning effort. A change
+  applies to conversations started afterwards.
+- **Stockfish**: the depth of the game review pass (default 16), the depth for repertoire positions
+  (default 18), and how many seconds the engine thinks about the position on the board for the
+  analysis panel and the companion's checks (default 1.5). Results are cached per depth, so after a
+  change positions are searched again and the earlier results are kept.
+
+Nothing changes until **Save**. Settings are stored in `.data/settings.json`.
 
 **Board.** Drag or click to move; promotion asks for a piece. Undo, flip and **New game** are below
 the board. The Left/Right arrow keys and the navigation buttons browse the game so far; the chevron in
@@ -87,8 +99,8 @@ Choose a game to put it on the board, oriented to the side you played. Step thro
 list, the navigation buttons or the Left/Right arrow keys; the evaluation bar and the analysis panel
 follow along. The board is read-only: it shows the game as played.
 
-**Move quality.** Opening a game starts a Stockfish pass over every position (depth 16 with the two
-best lines, around twenty seconds for a typical game the first time; results are cached in `.data/game-eval-cache.json`). Each move is then labelled
+**Move quality.** Opening a game starts a Stockfish pass over every position (depth 16 unless
+changed in **Settings**, with the two best lines, around twenty seconds for a typical game the first time; results are cached in `.data/game-eval-cache.json`). Each move is then labelled
 by the winning chances it gave up for the side that played it: **Best** is the engine's own move,
 **Excellent** loses at most 2 percentage points, **Good** 5, **Inaccuracy** 10, **Mistake** 20, and
 anything more is a **Blunder**. A best move becomes **Great**, the blue `!`, when it was the only

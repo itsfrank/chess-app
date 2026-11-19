@@ -2,7 +2,8 @@ import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { Chess } from 'chess.js';
 import type { Analysis, Candidate } from '../shared/protocol.ts';
-import { ENGINE, ENGINE_TIMEOUT_MS } from './config.ts';
+import { DEFAULT_SETTINGS } from '../shared/protocol.ts';
+import { ENGINE, ENGINE_GRACE_MS } from './config.ts';
 
 export type UciTrace = (direction: 'in' | 'out' | 'stderr', line: string) => void;
 
@@ -55,14 +56,15 @@ function terminalAnalysis(board: Chess): Analysis {
 
 /**
  * Evaluates `fen` (after optional hypothetical SAN/UCI `moves`) with a fresh
- * Stockfish process and returns the top candidates at the deepest depth for
- * which every MultiPV line completed.
+ * Stockfish process that thinks for `movetimeMs`, and returns the top
+ * candidates at the deepest depth for which every MultiPV line completed.
  */
 export async function analyze(
   fen: string,
   moves: string[] = [],
   signal?: AbortSignal,
   trace?: UciTrace,
+  movetimeMs = DEFAULT_SETTINGS.analysisSeconds * 1000,
 ): Promise<Analysis> {
   const board = new Chess(fen);
   for (const move of moves) board.move(move);
@@ -94,7 +96,10 @@ export async function analyze(
       else resolve(result!);
     };
     const abort = () => finish(new Error('Analysis cancelled'));
-    const timer = setTimeout(() => finish(new Error('Stockfish timed out')), ENGINE_TIMEOUT_MS);
+    const timer = setTimeout(
+      () => finish(new Error('Stockfish timed out')),
+      movetimeMs + ENGINE_GRACE_MS,
+    );
     signal?.addEventListener('abort', abort, { once: true });
     if (signal?.aborted) abort();
 
@@ -112,7 +117,7 @@ export async function analyze(
         send('isready');
       } else if (line === 'readyok') {
         send(`position fen ${position}`);
-        send(`go movetime ${ENGINE.movetime}`);
+        send(`go movetime ${Math.round(movetimeMs)}`);
       } else if (line.startsWith('bestmove')) {
         const depth = [...byDepth.keys()]
           .sort((a, b) => b - a)

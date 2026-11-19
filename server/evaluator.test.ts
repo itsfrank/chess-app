@@ -43,7 +43,7 @@ it('takes the last exact score, from White’s perspective, with the engine’s 
 
 it('scores finished games without an engine and remembers them', async () => {
   const file = join(dir, 'evals.json');
-  const evaluator = new Evaluator(file);
+  const evaluator = new Evaluator(file, () => 18);
   const mated = '7k/6Q1/5K2/8/8/8/8/8 b - - 0 1';
   expect(await evaluator.evaluate(mated)).toEqual({
     evaluation: { type: 'mate', value: 0, winner: 'white' },
@@ -53,13 +53,15 @@ it('scores finished games without an engine and remembers them', async () => {
   evaluator.dispose();
   expect(existsSync(file)).toBe(true);
   expect(Object.keys(JSON.parse(readFileSync(file, 'utf8')))).toHaveLength(1);
-  expect(new Evaluator(file).cached(positionKey(mated))?.depth).toBe(0);
+  expect(new Evaluator(file, () => 18).cached(positionKey(mated))?.depth).toBe(0);
+  // Results are kept per depth, so another depth starts without them.
+  expect(new Evaluator(file, () => 12).cached(positionKey(mated))).toBeUndefined();
 });
 
 it.runIf(process.env.TEST_STOCKFISH === '1')(
   'searches positions one after another with a live engine',
   async () => {
-    const evaluator = new Evaluator(join(dir, 'live.json'));
+    const evaluator = new Evaluator(join(dir, 'live.json'), () => 18);
     const [start, sicilian] = await Promise.all([
       evaluator.evaluate(new Chess().fen()),
       evaluator.evaluate(afterE4),

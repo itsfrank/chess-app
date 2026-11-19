@@ -62,13 +62,17 @@ export class Evaluator {
   private queue: Promise<unknown> = Promise.resolve();
   private saveTimer: NodeJS.Timeout | null = null;
   private readonly file: string;
-  private readonly depth: number;
+  private readonly depthOf: () => number;
   private readonly multiPV: number;
 
-  /** With `multiPV` 2 every result also carries the score of the engine's second choice. */
-  constructor(file: string, depth: number = BATCH_ENGINE.depth, multiPV = 1) {
+  /**
+   * `depth` is asked for before every search, so it can follow a setting; results
+   * are kept per depth. With `multiPV` 2 every result also carries the score of
+   * the engine's second choice.
+   */
+  constructor(file: string, depth: () => number, multiPV = 1) {
     this.file = file;
-    this.depth = depth;
+    this.depthOf = depth;
     this.multiPV = multiPV;
     try {
       const stored = JSON.parse(readFileSync(file, 'utf8')) as Record<string, PositionEval>;
@@ -78,8 +82,13 @@ export class Evaluator {
     }
   }
 
-  private cacheKey = (key: string) =>
-    `${key}|${this.depth}${this.multiPV > 1 ? `|pv${this.multiPV}` : ''}`;
+  private cacheKey = (key: string, depth = this.depthOf()) =>
+    `${key}|${depth}${this.multiPV > 1 ? `|pv${this.multiPV}` : ''}`;
+
+  /** The depth the next search will run at. */
+  get depth(): number {
+    return this.depthOf();
+  }
 
   /** The stored evaluation of a position, if it has been searched. */
   cached(key: string): PositionEval | undefined {
@@ -93,9 +102,11 @@ export class Evaluator {
       signal?.throwIfAborted();
       const known = this.cached(key);
       if (known) return known;
+      // Fixed for this search, in case the setting changes while it runs.
+      const depth = this.depthOf();
       const board = new Chess(fen);
-      const result = board.isGameOver() ? terminalEval(board) : await this.search(fen);
-      this.cache.set(this.cacheKey(key), result);
+      const result = board.isGameOver() ? terminalEval(board) : await this.search(fen, depth);
+      this.cache.set(this.cacheKey(key, depth), result);
       this.saveSoon();
       return result;
     });
@@ -119,7 +130,7 @@ export class Evaluator {
     return (this.child = child);
   }
 
-  private search(fen: string): Promise<PositionEval> {
+  private search(fen: string, depth: number): Promise<PositionEval> {
     const child = this.engine();
     return new Promise((resolve, reject) => {
       const output = createInterface({ input: child.stdout });
@@ -153,7 +164,7 @@ export class Evaluator {
           else finish(new Error('No engine result'));
         }
       });
-      child.stdin.write(`position fen ${fen}\ngo depth ${this.depth}\n`);
+      child.stdin.write(`position fen ${fen}\ngo depth ${depth}\n`);
     });
   }
 

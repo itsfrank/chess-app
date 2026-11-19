@@ -1,6 +1,6 @@
 import { Chess } from 'chess.js';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import type { ServerEvent, Totals } from '../shared/protocol.ts';
+import type { ServerEvent, SettingsInfo, Totals } from '../shared/protocol.ts';
 import { eventLine, type ChatService } from './chat.ts';
 import { listGames } from './chesscom.ts';
 import { MAX_PGN_CHARS } from './config.ts';
@@ -11,6 +11,7 @@ import type { MaiaOpponent } from './opponent.ts';
 import { isAllowedOrigin } from './origin.ts';
 import type { Replay } from './recording.ts';
 import type { RepertoireService } from './repertoires.ts';
+import { SettingsStore } from './settings.ts';
 import { parseChatRequest } from './snapshot.ts';
 import { analyze } from './stockfish.ts';
 
@@ -23,6 +24,8 @@ export type AppOptions = {
   opponent?: MaiaOpponent;
   repertoires?: RepertoireService;
   gameReview?: GameReviewService;
+  /** Kept in memory only when omitted. */
+  settings?: SettingsStore;
 };
 
 const statusOf = (error: unknown, fallback: number) =>
@@ -31,6 +34,7 @@ const statusOf = (error: unknown, fallback: number) =>
 /** The local HTTP API: usage totals, position analysis, opponent moves, and the streaming chat endpoint. */
 export function createApp(options: AppOptions): Server {
   const { lifetime, chat, replay, opponent, repertoires, gameReview } = options;
+  const settings = options.settings ?? new SettingsStore();
   const usage = (res: ServerResponse) =>
     sendJson(res, 200, { lifetime: replay?.initialLifetime ?? lifetime });
 
@@ -60,7 +64,23 @@ export function createApp(options: AppOptions): Server {
     (lookup: (fen: string, signal: AbortSignal) => Promise<unknown>) =>
     (req: IncomingMessage, res: ServerResponse) =>
       json(res, async signal => lookup(parseFen(await readJson(req)), signal));
-  const analysis = position((fen, signal) => analyze(fen, [], signal));
+  const analysis = position((fen, signal) =>
+    analyze(fen, [], signal, undefined, settings.current.analysisSeconds * 1000),
+  );
+
+  /** `GET` reads the settings and the models to choose from; `PUT` changes some of them. */
+  const appSettings = (req: IncomingMessage, res: ServerResponse) =>
+    json(res, async (): Promise<SettingsInfo> => {
+      // Without a model listing, as during a replay, any model id is taken on trust.
+      const models = (await chat?.models().catch(() => [])) ?? [];
+      if (req.method === 'PUT') {
+        settings.update(
+          await readJson(req),
+          models.map(model => model.id),
+        );
+      }
+      return { settings: settings.current, models };
+    });
   const explorer = position((fen, signal) => explore(fen, {}, signal));
 
   /** `/api/chesscom/games?username=…&before=…`: a page of the player's recent games. */
@@ -141,6 +161,8 @@ export function createApp(options: AppOptions): Server {
     if (!isAllowedOrigin(req.headers.origin)) {
       sendError(res, 403, 'Request origin is not allowed. Open the app from its local address.');
     } else if (route === 'GET /api/usage') usage(res);
+    else if (route === 'GET /api/settings' || route === 'PUT /api/settings')
+      void appSettings(req, res);
     else if (route === 'POST /api/analysis') void analysis(req, res);
     else if (route === 'POST /api/explorer') void explorer(req, res);
     else if (route === 'POST /api/opponent') void opponentMove(req, res);

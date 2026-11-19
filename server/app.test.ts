@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Chess } from 'chess.js';
 import { afterAll, beforeAll, expect, it } from 'vitest';
-import type { ServerEvent } from '../shared/protocol.ts';
+import { DEFAULT_SETTINGS, type ServerEvent } from '../shared/protocol.ts';
 import { createApp } from './app.ts';
 import { Recorder, Replay } from './recording.ts';
 
@@ -106,6 +106,27 @@ it('reviews games only when the service is present', async () => {
   const response = await post('/api/games/review', { moves: ['e4'] });
   expect(response.status).toBe(503);
   expect(await response.json()).toEqual({ message: 'Game review is unavailable' });
+});
+
+it('reads and changes settings, refusing invalid values', async () => {
+  const put = (body: unknown) =>
+    fetch(`${url}/api/settings`, { method: 'PUT', body: JSON.stringify(body) });
+  const initial = await (await fetch(`${url}/api/settings`)).json();
+  expect(initial).toEqual({ settings: DEFAULT_SETTINGS, models: [] });
+
+  const changed = await put({ chesscomUsername: ' frk ', gameReviewDepth: 14, ignored: true });
+  expect(await changed.json()).toHaveProperty('settings', {
+    ...DEFAULT_SETTINGS,
+    chesscomUsername: 'frk',
+    gameReviewDepth: 14,
+  });
+  const invalid = await put({ repertoireDepth: 99 });
+  expect(invalid.status).toBe(400);
+  expect(await invalid.json()).toEqual({ message: 'Invalid setting: repertoireDepth' });
+  expect(await (await fetch(`${url}/api/settings`)).json()).toHaveProperty(
+    'settings.repertoireDepth',
+    18,
+  );
 });
 
 it('has no opponent during replay', async () => {

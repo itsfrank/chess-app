@@ -43,6 +43,8 @@ export function GamesScreen({ modeSwitch }: { modeSwitch: ReactNode }) {
   const [browsing, setBrowsing] = useState(true);
   const list = (
     <GameList
+      // The form follows the listed player, also when the settings change it.
+      key={library.username}
       library={library}
       selected={game}
       onSelect={chosen => {
