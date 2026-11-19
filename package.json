@@ -7,7 +7,7 @@
     "dev": "vite --host 127.0.0.1",
     "server": "tsx server/index.ts",
     "replay": "tsx server/replay.ts",
-    "eval": "tsx evals/explain.ts",
+    "eval": "tsx evals/run.ts",
     "build": "vite build",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.server.json",
     "lint": "eslint .",

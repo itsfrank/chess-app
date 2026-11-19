@@ -262,12 +262,24 @@ material count, which pieces are attacked, defended, loose or pinned, and for th
 each engine line what the move takes, attacks, uncovers and leaves loose. Its prompt tells it to
 take such statements from the facts or not make them.
 
-`npm run eval -- <label>` measures how well that works. With the backend running, it asks each of
-three models to explain the worst and best moves of your most recent games, has a model write down
-every concrete board claim in the answers, and decides each claim with the rules of chess
-(`evals/claims.ts`). Results go to `.data/evals/<label>.json`, the questions are fixed in
-`.data/evals/cases.json` so runs are comparable, and `npm run eval -- compare a b` prints two runs
-side by side. A run makes about seventy model requests. `docs/ROADMAP.md` lists what is planned.
+`npm run eval -- <label>` measures the companion's answers. With the backend running, it asks each
+of three models three kinds of question:
+
+- **mine**: explain the worst and best moves of your most recent games, as the Explain button does;
+- **tactics**: 20 multi-move tactics from the Lichess puzzle database (`evals/tactics.json`), half
+  of them forks that only work after a preparatory move;
+- **ideas**: 31 questions on positional moves from annotated master games (`evals/ideas.json`,
+  with sources), asked as "what is the idea of this move" and "why not the natural alternative".
+
+Every answer has its concrete board claims written down by a model and decided by the rules of
+chess (`evals/claims.ts`). Tactics and ideas also have reference points, taken from the puzzle's
+solution or the published annotations, and a judge model that is not being measured says which of
+them the answer conveys. The report gives, per model and suite, the share of reference points
+covered, false claims, seconds and estimated cost per answer. Results go to
+`.data/evals/<label>.json`; the questions from your own games are fixed in `.data/evals/cases.json`
+so runs are comparable; `--suites`, `--models` and `--api` narrow or redirect a run, and
+`npm run eval -- compare a b` prints two runs side by side. A full run makes several hundred model
+requests. `docs/ROADMAP.md` records the results so far and what is planned.
 
 The agent can only use `analyze_position`, `set_arrows` and `lichess_moves`; the backend refuses to
 run a session with any other tool active. The model's move links are never trusted: the backend asks
