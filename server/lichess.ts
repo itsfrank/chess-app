@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { Chess } from 'chess.js';
-import type { ExplorerResult } from '../shared/protocol.ts';
+import { RATING_BUCKETS, type ExplorerResult } from '../shared/protocol.ts';
 import { LICHESS_TOKEN_FILE } from './config.ts';
 
-export const ratings = [0, 1000, 1200, 1400, 1600, 1800, 2000, 2200, 2500];
+export const ratings = RATING_BUCKETS;
 export const speeds = ['ultraBullet', 'bullet', 'blitz', 'rapid', 'classical', 'correspondence'];
 
 const ENDPOINT = 'https://explorer.lichess.org/lichess';

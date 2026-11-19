@@ -35,6 +35,8 @@ export function Board(props: {
   candidates: Annotation[];
   /** Rendered to the left of the board. */
   evalBar: ReactNode;
+  /** Distinguishes this board's elements when more than one board is mounted. */
+  id?: string;
 }) {
   const { position, flipped, interactive, onMove, arrows, activeArrow, candidates, evalBar } =
     props;
@@ -72,7 +74,7 @@ export function Board(props: {
         <div className="board-wrap">
           <Chessboard
             options={{
-              id: 'review-board',
+              id: props.id ?? 'review-board',
               position: fen,
               boardOrientation: flipped ? 'black' : 'white',
               allowDrawingArrows: false,

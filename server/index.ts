@@ -4,6 +4,7 @@ import { ChatService } from './chat.ts';
 import { MODEL, MODEL_NAME, PORT } from './config.ts';
 import { MaiaOpponent } from './opponent.ts';
 import { Replay } from './recording.ts';
+import { RepertoireService } from './repertoires.ts';
 import { loadTotals } from './usage.ts';
 
 /** Model, engines and conversations for live use; a replay server needs none of them. */
@@ -23,7 +24,9 @@ const replayLog = process.env.REPLAY_LOG;
 const services = replayLog
   ? { lifetime: loadTotals(), replay: new Replay(replayLog), chat: undefined, opponent: undefined }
   : await liveServices();
-const server = createApp(services);
+/** Repertoire analysis uses only Stockfish and Lichess, so it also works beside a replay. */
+const repertoires = new RepertoireService();
+const server = createApp({ ...services, repertoires });
 
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`Chess API: http://127.0.0.1:${PORT}${replayLog ? ' (offline replay)' : ''}`);
@@ -32,6 +35,7 @@ server.listen(PORT, '127.0.0.1', () => {
 const shutdown = () => {
   services.opponent?.close();
   services.chat?.dispose();
+  repertoires.dispose();
   server.close();
   // Streaming responses would otherwise keep the process alive.
   server.closeAllConnections();

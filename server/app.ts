@@ -2,11 +2,13 @@ import { Chess } from 'chess.js';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { ServerEvent, Totals } from '../shared/protocol.ts';
 import { eventLine, type ChatService } from './chat.ts';
+import { MAX_PGN_CHARS } from './config.ts';
 import { errorMessage, HttpError, readJson, sendJson } from './http.ts';
 import { explore } from './lichess.ts';
 import type { MaiaOpponent } from './opponent.ts';
 import { isAllowedOrigin } from './origin.ts';
 import type { Replay } from './recording.ts';
+import type { RepertoireService } from './repertoires.ts';
 import { parseChatRequest } from './snapshot.ts';
 import { analyze } from './stockfish.ts';
 
@@ -17,13 +19,14 @@ export type AppOptions = {
   /** When set, chat turns are answered from this recording and nothing else runs. */
   replay?: Replay;
   opponent?: MaiaOpponent;
+  repertoires?: RepertoireService;
 };
 
 const statusOf = (error: unknown, fallback: number) =>
   error instanceof HttpError ? error.status : fallback;
 
 /** The local HTTP API: usage totals, position analysis, opponent moves, and the streaming chat endpoint. */
-export function createApp({ lifetime, chat, replay, opponent }: AppOptions): Server {
+export function createApp({ lifetime, chat, replay, opponent, repertoires }: AppOptions): Server {
   const usage = (res: ServerResponse) =>
     sendJson(res, 200, { lifetime: replay?.initialLifetime ?? lifetime });
 
@@ -56,6 +59,26 @@ export function createApp({ lifetime, chat, replay, opponent }: AppOptions): Ser
   const analysis = position((fen, signal) => analyze(fen, [], signal));
   const explorer = position((fen, signal) => explore(fen, {}, signal));
 
+  /** `/api/repertoires`, `/api/repertoires/:id` and `/api/repertoires/:id/:action`. */
+  const repertoire = (req: IncomingMessage, res: ServerResponse) =>
+    json(res, async () => {
+      if (!repertoires) throw new HttpError(503, 'Repertoires are unavailable');
+      const [id, action] = req.url!.split('/').slice(3);
+      const route = `${req.method} ${id ? (action ?? ':id') : ''}`.trim();
+      if (route === 'GET') return repertoires.list();
+      if (route === 'POST') return repertoires.import(await readJson(req, MAX_PGN_CHARS));
+      if (route === 'GET :id') return repertoires.report(id);
+      if (route === 'DELETE :id') return repertoires.remove(id) ?? {};
+      if (req.method !== 'POST') throw new HttpError(404, 'Not found');
+      const body = ((await readJson(req)) ?? {}) as Record<string, unknown>;
+      if (action === 'accept') return repertoires.accept(id, body.findingId);
+      if (action === 'revert') return repertoires.revert(id, body.changeId);
+      if (action === 'dismiss') return repertoires.dismiss(id, body.findingId, body.dismissed);
+      if (action === 'analyze') return repertoires.analyze(id, body.ratings);
+      if (action === 'stop') return repertoires.stop(id) ?? repertoires.report(id);
+      throw new HttpError(404, 'Not found');
+    });
+
   const chatTurn = async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const request = parseChatRequest(await readJson(req));
@@ -83,6 +106,7 @@ export function createApp({ lifetime, chat, replay, opponent }: AppOptions): Ser
     else if (route === 'POST /api/explorer') void explorer(req, res);
     else if (route === 'POST /api/opponent') void opponentMove(req, res);
     else if (route === 'POST /api/chat') void chatTurn(req, res);
+    else if (/^\/api\/repertoires(\/|$)/.test(req.url ?? '')) void repertoire(req, res);
     else res.writeHead(404).end();
   });
 }

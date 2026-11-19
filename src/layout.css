@@ -283,3 +283,146 @@ main.moves-open {
     padding: 6px 14px;
   }
 }
+
+/* Repertoire screen: the board with the line that leads to it, and the proposals beside it */
+main.repertoire {
+  --companion-min: 520px;
+}
+.repertoire .workspace {
+  grid-template-columns: auto minmax(var(--companion-min), 720px);
+}
+.path-line,
+.continuations {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 4px;
+  margin-left: var(--gutter);
+}
+.path-line {
+  align-content: end;
+  height: 52px;
+  padding-bottom: 8px;
+  overflow-y: auto;
+}
+.continuations {
+  gap: 4px 8px;
+  min-height: 46px;
+  margin-top: 8px;
+  padding-top: 10px;
+}
+.arrow-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+.repertoire-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  padding: 28px 32px 0 36px;
+  border-left: 1px solid var(--line);
+}
+.repertoire-header {
+  display: grid;
+  gap: 10px;
+  padding-bottom: 16px;
+}
+.repertoire-choice,
+.repertoire-settings,
+.repertoire-settings label,
+.list-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+}
+.repertoire-choice select {
+  flex: 1;
+  min-width: 0;
+}
+.repertoire-settings label {
+  gap: 6px;
+}
+.repertoire-settings input {
+  width: 62px;
+}
+.repertoire-settings > button {
+  margin-left: auto;
+}
+.repertoire-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 12px 8px 24px 0;
+}
+.list-filters {
+  padding-bottom: 10px;
+}
+.finding-summary {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  column-gap: 10px;
+  align-items: baseline;
+  width: 100%;
+  padding: 9px 0;
+  text-align: left;
+}
+.finding-path,
+.finding-tags {
+  grid-column: 2 / -1;
+}
+.finding-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+.finding-detail {
+  display: grid;
+  gap: 8px;
+  padding: 2px 0 14px 54px;
+}
+.finding-detail .plan {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.finding-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 4px;
+}
+.rule {
+  padding: 10px 0;
+}
+.rule p {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  padding-left: 16px;
+}
+.rule strong {
+  min-width: 52px;
+}
+.mode-switch {
+  display: flex;
+  gap: 2px;
+}
+
+@media (max-width: 900px) {
+  .repertoire .workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .repertoire-panel {
+    height: 90dvh;
+    padding: 20px 16px 0;
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+}

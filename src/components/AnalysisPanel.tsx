@@ -1,4 +1,4 @@
-import type { Analysis, ExplorerResult } from '../../shared/protocol';
+import type { Analysis, Evaluation, ExplorerResult } from '../../shared/protocol';
 import { formatLine, lineColors, scoreText, whiteShare } from '../analysis';
 import type { AnalysisState, AnalysisTab, PositionResult } from '../hooks/useAnalysis';
 
@@ -17,14 +17,7 @@ export function evalLabel(result: PositionResult<Analysis>): string {
 }
 
 /** Vertical bar beside the board showing the engine's evaluation from White's perspective. */
-export function EvalBar({
-  result,
-  flipped,
-}: {
-  result: PositionResult<Analysis>;
-  flipped: boolean;
-}) {
-  const score = result.data?.evaluation;
+export function EvalBar({ score, flipped }: { score: Evaluation | undefined; flipped: boolean }) {
   const description = score ? `White evaluation: ${scoreText(score)}` : 'Evaluation unavailable';
   return (
     <div className="eval-bar" role="img" aria-label={description} title={description}>

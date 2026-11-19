@@ -72,6 +72,35 @@ against a subscription, and zero can mean pricing was unavailable.
 Conversations live in backend memory: restarting the backend or reloading the page starts a new one.
 The backend keeps the ten most recently used.
 
+## Simplifying a repertoire
+
+**Repertoire**, in the bottom-left corner, switches from the board to a screen for opening
+repertoires; the game and conversation on the board are kept. **Import PGN** takes an export with
+variations, such as one from Chessbook. Positions reached by different move orders are folded into
+one, and the header shows how many positions you actually have to know a move in.
+
+- **Proposals** are single-move changes that would make the repertoire smaller or more regular: a
+  move that returns to positions you already know, or the move you usually play with your pieces
+  arranged that way. Each shows the change in positions to know (an upper bound, marked `≤`, when
+  some replies would need a new line), the engine's score against your current move, and how the
+  line continues. Select one to see it on the board.
+- **Unsound** lists repertoire moves that lose half a pawn or more to the engine's choice.
+- **Rules** groups positions by where your own pieces stand and shows what you play from each,
+  with the exceptions.
+- **Accepted** is the record of changes you accepted, as deviations from the imported PGN. The
+  import itself is never modified, and a change can be reverted.
+
+**Analyse** evaluates every position, and the position after every proposed move, with Stockfish at
+a fixed depth, and fetches how often opponents in the chosen rating range play each move from the
+Lichess explorer (blitz, rapid and classical; needs the token below). Both run in the background,
+can be stopped and resumed, and are cached in `.data/`, so each position is only searched once.
+Until then proposals are structural only. A proposal within the **Tolerance** of your current move
+counts as sound; the others stay listed, marked as unsound. A proposal is scored at its worst
+point: the position after the move, or any known position its continuation rejoins. The engine
+compares scores, not plans, so a sound proposal can still leave a structure you like less.
+
+Repertoires and accepted changes are stored in `.data/repertoires/`. There is no PGN export yet.
+
 ## Playing against Maia3
 
 Press **New game**, choose **Play Maia3**, a side and a rating, then **Start game**. The choices are
@@ -134,13 +163,17 @@ TEST_STOCKFISH=1 TEST_MAIA3=1 npm test   # also exercise the installed engines
 
 ```
 shared/   Used by both sides: the wire protocol, SAN recognition and the arrow palette
+  repertoire.ts     position graph of a PGN  consolidation.ts  proposals and rules
+  soundness.ts      engine verdicts, move frequencies
 server/   Local HTTP API
   index.ts      startup and shutdown        app.ts         routing
   chat.ts       conversations and turns     tools.ts       the agent's three tools
   stockfish.ts  analysis engine             opponent.ts    Maia3 subprocess
   lichess.ts    opening explorer            recording.ts   session recording and replay
+  repertoires.ts  imported repertoires and their analysis   evaluator.ts  fixed-depth Stockfish
 src/      React frontend
   App.tsx       game state and layout       hooks/         chat queue, opponent, analysis
+  Root.tsx      board / repertoire switch   components/Repertoire*.tsx  the repertoire screen
   components/   board, chat, analysis panel annotations.ts move links in rendered Markdown
   style.css     appearance                  layout.css     sizing and breakpoints
 docs/design/  Redesign screenshots and a script that generates a synthetic replay fixture

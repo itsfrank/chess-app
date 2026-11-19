@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import type { Chess, Square } from 'chess.js';
 import type { Annotation, PlayerColor, Snapshot } from '../shared/protocol';
 import { analysisArrows } from './analysis';
@@ -18,7 +18,7 @@ import { useOpponent, type Opponent } from './hooks/useOpponent';
 const NO_ARROWS: Annotation[] = [];
 const MOVES_OPEN_KEY = 'chess-app.moves-open';
 
-export function App() {
+export function App({ modeSwitch }: { modeSwitch?: ReactNode }) {
   /** The live game as SAN from the starting position; every position is derived from it. */
   const [moves, setMoves] = useState<string[]>([]);
   /** Number of half-moves shown while browsing history; null when showing the live position. */
@@ -179,7 +179,7 @@ export function App() {
               arrows={annotation.fen === shownFen ? annotation.arrows : NO_ARROWS}
               activeArrow={activeArrow}
               candidates={candidateArrows}
-              evalBar={<EvalBar result={analysis.engine} flipped={flipped} />}
+              evalBar={<EvalBar score={analysis.engine.data?.evaluation} flipped={flipped} />}
             />
             <div className="player">
               {seat(flipped ? 'black' : 'white')}
@@ -237,6 +237,7 @@ export function App() {
         <Icon name={movesOpen ? 'left' : 'right'} size={16} />
       </button>
       <StatusBar
+        lead={modeSwitch}
         fen={shownFen}
         usage={chat.usage}
         notice={result ? `${status}. Start a new game or use ← / → to explore the moves.` : notice}

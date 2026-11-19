@@ -4,6 +4,8 @@ import type {
   ExplorerResult,
   OpponentMove,
   OpponentRequest,
+  RepertoireReport,
+  RepertoireSummary,
   ServerEvent,
   Totals,
 } from '../shared/protocol';
@@ -69,3 +71,31 @@ export async function* streamChat(
     if (done) return;
   }
 }
+
+async function repertoireRequest<T>(method: string, path = '', body?: unknown): Promise<T> {
+  const response = await fetch(`/api/repertoires${path}`, {
+    method,
+    headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!response.ok) throw await failure(response);
+  return response.json();
+}
+const repertoireAction =
+  <B>(action: string) =>
+  (id: string, body: B) =>
+    repertoireRequest<RepertoireReport>('POST', `/${id}/${action}`, body);
+
+/** Imported opening repertoires and the proposals to simplify them. */
+export const repertoires = {
+  list: () => repertoireRequest<RepertoireSummary[]>('GET'),
+  get: (id: string) => repertoireRequest<RepertoireReport>('GET', `/${id}`),
+  import: (pgn: string) => repertoireRequest<RepertoireReport>('POST', '', { pgn }),
+  remove: (id: string) => repertoireRequest<unknown>('DELETE', `/${id}`),
+  accept: repertoireAction<{ findingId: string }>('accept'),
+  revert: repertoireAction<{ changeId: string }>('revert'),
+  dismiss: repertoireAction<{ findingId: string; dismissed: boolean }>('dismiss'),
+  /** Starts the engine and Lichess passes; `ratings` changes the rating range first. */
+  analyze: repertoireAction<{ ratings?: number[] }>('analyze'),
+  stop: repertoireAction<object>('stop'),
+};

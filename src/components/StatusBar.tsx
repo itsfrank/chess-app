@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { Totals } from '../../shared/protocol';
 
 const USAGE_HELP =
@@ -8,14 +9,17 @@ const usageLabel = (totals: Totals) =>
 
 /** The strip along the bottom of the window: the position's FEN and what the companion has cost. */
 export function StatusBar(props: {
+  /** Shown first, before the FEN. */
+  lead?: ReactNode;
   fen: string;
   usage: { session: Totals; lifetime: Totals };
   /** The latest announcement about the game, read out by screen readers. */
   notice: string;
 }) {
-  const { fen, usage, notice } = props;
+  const { lead, fen, usage, notice } = props;
   return (
     <footer className="status-bar">
+      {lead}
       <span>FEN</span>
       <code>{fen}</code>
       <p className="sr-only" role="status">

@@ -13,11 +13,11 @@ export class HttpError extends Error {
 export const errorMessage = (error: unknown, fallback = 'Request failed') =>
   error instanceof Error && error.message ? error.message : fallback;
 
-export async function readJson(req: IncomingMessage): Promise<unknown> {
+export async function readJson(req: IncomingMessage, limit = MAX_BODY_CHARS): Promise<unknown> {
   let raw = '';
   for await (const chunk of req) {
     raw += chunk;
-    if (raw.length > MAX_BODY_CHARS) throw new HttpError(413, 'Request too large');
+    if (raw.length > limit) throw new HttpError(413, 'Request too large');
   }
   try {
     return JSON.parse(raw);
