@@ -1,18 +1,14 @@
 import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import type { Annotation, ArchivedGame, PlayerColor } from '../../shared/protocol';
 import type { Trace } from '../../shared/habits';
-import {
-  numberedMove,
-  QUALITIES,
-  type GameReview as Review,
-  type QualityId,
-} from '../../shared/quality';
+import { numberedMove, QUALITIES, type QualityId } from '../../shared/quality';
 import { analysisArrows } from '../analysis';
 import { gamePositions, replay } from '../chess';
 import { useAnalysis } from '../hooks/useAnalysis';
 import { useChat } from '../hooks/useChat';
 import { useGameReview } from '../hooks/useGameReview';
 import { useRepertoireTrace } from '../hooks/useRepertoireTrace';
+import { useSettings } from '../settings';
 import { useGames, type GamesState } from '../hooks/useGames';
 import { AnalysisPanel, EvalBar, evalLabel } from './AnalysisPanel';
 import { Board, type SquareBadge } from './Board';
@@ -43,8 +39,6 @@ export function GamesScreen({ modeSwitch }: { modeSwitch: ReactNode }) {
   const [browsing, setBrowsing] = useState(true);
   const list = (
     <GameList
-      // The form follows the listed player, also when the settings change it.
-      key={library.username}
       library={library}
       selected={game}
       onSelect={chosen => {
@@ -88,7 +82,8 @@ function GameReview(props: {
   const shownFen = shownGame.fen();
 
   const analysis = useAnalysis(shownFen);
-  const { review, error: reviewError, retry: retryReview } = useGameReview(moves);
+  const analysed = useGameReview(moves);
+  const { review } = analysed;
   const repertoire = useRepertoireTrace(game);
   /** The verdict on each move, for the move list and the board. */
   const marks = useMemo(
@@ -246,9 +241,7 @@ function GameReview(props: {
                   </div>
                   <ReviewSummary
                     game={game}
-                    review={review}
-                    error={reviewError}
-                    onRetry={retryReview}
+                    analysed={analysed}
                     shown={marks[ply - 1]}
                     onExplain={explainMove}
                   />
@@ -320,15 +313,14 @@ function RepertoireNote(props: {
 /** Each side's accuracy and how many of its moves got each label, with the verdict on the shown move. */
 function ReviewSummary(props: {
   game: ArchivedGame;
-  review: Review;
-  error: string;
-  onRetry: () => void;
+  analysed: ReturnType<typeof useGameReview>;
   shown: MoveMark | undefined;
   /** Asks the companion about the shown move. */
   onExplain: () => void;
 }) {
-  const { game, review, error, onRetry, shown, onExplain } = props;
-  const complete = review.done === game.moves.length;
+  const { game, analysed, shown, onExplain } = props;
+  const { review, error, retry: onRetry, stale, depth } = analysed;
+  const complete = review.done === game.moves.length && !analysed.refreshing;
   return (
     <section className="review-summary" aria-label="Game review">
       <table>
@@ -367,6 +359,8 @@ function ReviewSummary(props: {
           <>
             {error} <button onClick={onRetry}>Retry</button>
           </>
+        ) : analysed.refreshing ? (
+          `Re-analysing at depth ${depth}… ${stale} positions left`
         ) : !complete ? (
           `Reviewing the game with Stockfish… ${review.done} / ${game.moves.length} moves`
         ) : shown ? (
@@ -383,6 +377,15 @@ function ReviewSummary(props: {
           'Step through the game to see the verdict on each move.'
         )}
       </p>
+      {complete && stale > 0 && (
+        <p className="depth-warning">
+          <span>
+            {stale === review.done + 1 ? 'Reviewed' : `${stale} positions reviewed`} at a lower
+            depth than the {depth} in Settings.
+          </span>
+          <button onClick={analysed.refresh}>Re-analyse</button>
+        </p>
+      )}
     </section>
   );
 }
@@ -406,7 +409,7 @@ function outcomeFor(game: ArchivedGame): 'Won' | 'Lost' | 'Draw' {
   return (game.result === '1-0') === (game.playerColor === 'white') ? 'Won' : 'Lost';
 }
 
-/** The username form and the player's games; choosing one opens it for review. */
+/** The games of the player named in the settings; choosing one opens it for review. */
 function GameList(props: {
   library: GamesState;
   selected: ArchivedGame | null;
@@ -415,55 +418,38 @@ function GameList(props: {
   onClose: () => void;
 }) {
   const { library, selected, onSelect, onClose } = props;
-  const { games, loading, error } = library;
-  const [name, setName] = useState(library.username);
+  const { username, games, loading, error } = library;
+  const { open: openSettings } = useSettings();
 
   return (
     <section className="repertoire-panel games-panel" aria-label="Games">
-      <form
-        className="repertoire-header games-form"
-        onSubmit={event => {
-          event.preventDefault();
-          if (name.trim()) void library.load(name.trim());
-        }}
-      >
-        <label>
-          <span className="label">chess.com username</span>
-          <input
-            type="text"
-            value={name}
-            maxLength={50}
-            autoComplete="off"
-            spellCheck={false}
-            placeholder="Username"
-            onChange={event => setName(event.target.value)}
-          />
-        </label>
-        <button className="primary" disabled={loading || !name.trim()}>
-          {games.length && name.trim().toLowerCase() === library.username.toLowerCase()
-            ? 'Refresh'
-            : 'Load games'}
-        </button>
-        {selected && (
-          <button type="button" onClick={onClose}>
-            Back to game
+      <header className="repertoire-header games-form">
+        <h2 title="The chess.com username from Settings">{username || 'My games'}</h2>
+        {username && (
+          <button disabled={loading} onClick={library.refresh}>
+            {loading ? 'Loading…' : 'Refresh'}
           </button>
         )}
-      </form>
+        {selected && <button onClick={onClose}>Back to game</button>}
+      </header>
       {error && (
         <p className="repertoire-error" role="alert">
           {error}
         </p>
       )}
       <div className="repertoire-list">
-        {!games.length && !error && (
+        {!username ? (
           <p className="repertoire-empty">
-            {loading
-              ? 'Loading games…'
-              : library.username
-                ? 'No standard games found.'
-                : 'Enter your chess.com username to list your recent games, then choose one to go through with the companion.'}
+            Set your chess.com username in <button onClick={openSettings}>Settings</button> to list
+            your recent games, then choose one to go through with the companion.
           </p>
+        ) : (
+          !games.length &&
+          !error && (
+            <p className="repertoire-empty">
+              {loading ? 'Loading games…' : 'No standard games found.'}
+            </p>
+          )
         )}
         {games.map(game => {
           const outcome = outcomeFor(game);

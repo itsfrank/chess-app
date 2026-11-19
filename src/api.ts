@@ -93,16 +93,25 @@ export async function* streamChat(
   yield* ndjson<ServerEvent>(await postJson('/api/chat', request, signal));
 }
 
-/** The engine's verdict on one position of a game, or how many opening half-moves are theory. */
-export type ReviewEvent = (PositionEval & { ply: number }) | { book: number };
+/**
+ * One line of a game's review: the engine's verdict on a position, `stale`
+ * when it comes from a shallower search than is configured; how many opening
+ * half-moves are theory; or, first, the configured depth.
+ */
+export type ReviewEvent =
+  (PositionEval & { ply: number; stale: boolean }) | { book: number } | { depth: number };
 
-/** A game's review as it is worked out: positions in order, book depth as it is found. */
+/**
+ * A game's review as it is worked out: positions in order, book depth as it is
+ * found. `refresh` searches again what was stored from a shallower search.
+ */
 export async function* streamGameReview(
   moves: string[],
+  refresh: boolean,
   signal: AbortSignal,
 ): AsyncGenerator<ReviewEvent> {
   const lines = ndjson<ReviewEvent | { error: string }>(
-    await postJson('/api/games/review', { moves }, signal),
+    await postJson('/api/games/review', { moves, refresh }, signal),
   );
   for await (const line of lines) {
     if ('error' in line) throw new Error(line.error);

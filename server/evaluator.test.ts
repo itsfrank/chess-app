@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Chess } from 'chess.js';
@@ -53,9 +53,10 @@ it('scores finished games without an engine and remembers them', async () => {
   evaluator.dispose();
   expect(existsSync(file)).toBe(true);
   expect(Object.keys(JSON.parse(readFileSync(file, 'utf8')))).toHaveLength(1);
-  expect(new Evaluator(file, () => 18).cached(positionKey(mated))?.depth).toBe(0);
-  // Results are kept per depth, so another depth starts without them.
-  expect(new Evaluator(file, () => 12).cached(positionKey(mated))).toBeUndefined();
+  // A finished game has nothing to search, so its verdict holds at any depth.
+  const deeper = new Evaluator(file, () => 24);
+  expect(deeper.cached(positionKey(mated))?.depth).toBe(0);
+  expect(deeper.current(positionKey(mated))).toBe(true);
 });
 
 it.runIf(process.env.TEST_STOCKFISH === '1')(
@@ -78,3 +79,35 @@ it.runIf(process.env.TEST_STOCKFISH === '1')(
   },
   60000,
 );
+
+it('serves the deepest stored result and calls it current only when it is deep enough', () => {
+  const file = join(dir, 'depths.json');
+  const key = positionKey(afterE4);
+  const at = (depth: number, value: number) => ({
+    evaluation: { type: 'cp', value },
+    best: 'e5',
+    depth,
+  });
+  writeFileSync(
+    file,
+    JSON.stringify({
+      [`${key}|12`]: at(12, 40),
+      [`${key}|18`]: at(18, 25),
+      'other|14|pv2': at(14, 0),
+    }),
+  );
+  const configured = { depth: 16 };
+  const evaluator = new Evaluator(file, () => configured.depth);
+  expect(evaluator.cached(key)?.evaluation).toEqual({ type: 'cp', value: 25 });
+  // Searched deeper than asked: never in need of another search.
+  expect(evaluator.current(key)).toBe(true);
+  configured.depth = 18;
+  expect(evaluator.current(key)).toBe(true);
+  // Still served when the configured depth passes it, but no longer current.
+  configured.depth = 20;
+  expect(evaluator.cached(key)?.depth).toBe(18);
+  expect(evaluator.current(key)).toBe(false);
+  // Results that carry a second line belong to another kind of search.
+  expect(evaluator.cached('other')).toBeUndefined();
+  expect(evaluator.current('unknown')).toBe(false);
+});

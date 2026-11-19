@@ -98,14 +98,16 @@ export function createApp(options: AppOptions): Server {
     res.on('close', onClose);
     try {
       if (!gameReview) throw new HttpError(503, 'Game review is unavailable');
-      const moves = parseReviewRequest(await readJson(req));
+      const { moves, refresh } = parseReviewRequest(await readJson(req));
       res.writeHead(200, { 'Content-Type': 'application/x-ndjson', 'Cache-Control': 'no-cache' });
       const line = (value: object) => res.write(JSON.stringify(value) + '\n');
+      line({ depth: gameReview.configuredDepth });
       await gameReview.evaluate(
         moves,
         controller.signal,
-        (ply, result) => line({ ply, ...result }),
+        (ply, result, stale) => line({ ply, ...result, stale }),
         book => line({ book }),
+        refresh,
       );
     } catch (error) {
       if (!res.headersSent) sendJson(res, statusOf(error, 502), { message: errorMessage(error) });

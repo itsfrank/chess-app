@@ -254,7 +254,9 @@ export function RepertoireScreen({ modeSwitch }: { modeSwitch: ReactNode }) {
 }
 
 function progressText({ job, engineDepth }: RepertoireReport): string {
-  const engine = `Stockfish depth ${engineDepth} · ${job.evalDone}/${job.evalTotal} positions`;
+  // While a deeper pass runs, count the positions that have reached the configured depth.
+  const done = job.evalDone - (job.running ? job.evalStale : 0);
+  const engine = `Stockfish depth ${engineDepth} · ${done}/${job.evalTotal} positions`;
   const lichess = `Lichess ${job.frequencyDone}/${job.frequencyTotal}`;
   return `${job.running ? 'Analysing · ' : ''}${engine} · ${lichess}`;
 }
@@ -421,6 +423,19 @@ function Header(props: {
             )}
           </div>
           {job.error && <p className="repertoire-error">{job.error}</p>}
+          {!job.running && job.evalStale > 0 && (
+            <p className="depth-warning">
+              <span>
+                {job.evalStale === job.evalDone
+                  ? 'Analysed'
+                  : `${job.evalStale} positions analysed`}{' '}
+                at a lower depth than the {report.engineDepth} in Settings.
+              </span>
+              <button disabled={state.busy} onClick={() => state.analyze()}>
+                Re-analyse
+              </button>
+            </p>
+          )}
           {!job.running && !complete && !job.error && (
             <p className="repertoire-note">
               Proposals are structural until analysed: Stockfish has not checked them and line

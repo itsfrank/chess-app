@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { RepertoireReport, RepertoireSummary } from '../../shared/protocol';
 import { repertoires } from '../api';
+import { useSettings } from '../settings';
 
 const SELECTED_KEY = 'chess-app.repertoire';
 const POLL_MS = 2500;
@@ -40,6 +41,8 @@ export function useRepertoire() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // The report says which verdicts are deep enough, so it is read again when that depth changes.
+  const depth = useSettings().settings.repertoireDepth;
   const shown = report?.id === id ? report : null;
   const running = shown?.job.running ?? false;
   useEffect(() => {
@@ -61,7 +64,7 @@ export function useRepertoire() {
       current = false;
       clearInterval(timer);
     };
-  }, [id, running]);
+  }, [id, running, depth]);
 
   /** Runs a request that answers with the updated report. */
   const act = useCallback(async (request: () => Promise<RepertoireReport>) => {

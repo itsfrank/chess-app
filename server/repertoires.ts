@@ -120,7 +120,7 @@ const RATE_LIMIT_RETRIES = 30;
 
 export type RepertoireOptions = {
   dir?: string;
-  evaluator?: Pick<Evaluator, 'cached' | 'evaluate' | 'release' | 'dispose'>;
+  evaluator?: Pick<Evaluator, 'cached' | 'current' | 'evaluate' | 'release' | 'dispose'>;
   frequencyFile?: string;
   loadFrequencies?: FrequencyLoader;
   loadGames?: GameLoader;
@@ -292,10 +292,14 @@ export class RepertoireService {
     const computed = this.compute(stored);
     const targets = this.targets(stored, computed);
 
+    // Verdicts from a shallower search than is configured now are still shown, and counted.
     const evals: Record<string, PositionEval> = {};
+    let evalStale = 0;
     for (const { key } of targets.evals) {
       const known = this.evaluator.cached(key);
-      if (known) evals[key] = known;
+      if (!known) continue;
+      evals[key] = known;
+      if (!this.evaluator.current(key)) evalStale++;
     }
     const frequencies: Record<string, Frequencies | undefined> = {};
     let frequencyDone = 0;
@@ -308,6 +312,7 @@ export class RepertoireService {
       running: this.jobs.has(id),
       evalDone: Object.keys(evals).length,
       evalTotal: targets.evals.length,
+      evalStale,
       frequencyDone,
       frequencyTotal: targets.frequencies.length,
       error: this.jobs.get(id)?.error ?? this.errors.get(id) ?? null,
@@ -473,7 +478,7 @@ export class RepertoireService {
       pass('Engine', async () => {
         for (const { key, fen } of targets.evals) {
           signal.throwIfAborted();
-          if (!this.evaluator.cached(key)) await this.evaluator.evaluate(fen, signal);
+          if (!this.evaluator.current(key)) await this.evaluator.evaluate(fen, signal);
         }
       }),
       pass('Lichess', async () => {

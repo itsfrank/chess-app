@@ -140,8 +140,11 @@ export type RepertoireSummary = {
 /** Progress of the background engine and explorer passes over a repertoire. */
 export type RepertoireJob = {
   running: boolean;
+  /** Positions with an engine verdict, at whatever depth. */
   evalDone: number;
   evalTotal: number;
+  /** Of those, the ones searched less deeply than is configured now. */
+  evalStale: number;
   frequencyDone: number;
   frequencyTotal: number;
   error: string | null;

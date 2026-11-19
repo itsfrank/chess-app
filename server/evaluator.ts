@@ -53,11 +53,15 @@ function terminalEval(board: Chess): PositionEval {
 
 /**
  * Fixed-depth evaluations for many positions: one long-lived Stockfish
- * process, one search at a time, and results kept on disk so a repertoire is
- * only ever searched once per position.
+ * process, one search at a time, and results kept on disk so a position is
+ * searched once per depth. The deepest result for a position is the one used;
+ * it is current while it is at least as deep as the configured depth.
  */
 export class Evaluator {
+  /** Everything stored, by position and the depth it was searched at. */
   private cache = new Map<string, PositionEval>();
+  /** The deepest result of each position, with the depth it was searched at. */
+  private deepest = new Map<string, { depth: number; result: PositionEval }>();
   private child: ChildProcessWithoutNullStreams | null = null;
   private queue: Promise<unknown> = Promise.resolve();
   private saveTimer: NodeJS.Timeout | null = null;
@@ -66,9 +70,8 @@ export class Evaluator {
   private readonly multiPV: number;
 
   /**
-   * `depth` is asked for before every search, so it can follow a setting; results
-   * are kept per depth. With `multiPV` 2 every result also carries the score of
-   * the engine's second choice.
+   * `depth` is asked for before every search, so it can follow a setting. With
+   * `multiPV` 2 every result also carries the score of the engine's second choice.
    */
   constructor(file: string, depth: () => number, multiPV = 1) {
     this.file = file;
@@ -76,37 +79,50 @@ export class Evaluator {
     this.multiPV = multiPV;
     try {
       const stored = JSON.parse(readFileSync(file, 'utf8')) as Record<string, PositionEval>;
-      this.cache = new Map(Object.entries(stored));
+      for (const [storedKey, result] of Object.entries(stored)) {
+        const [key, depth, lines] = storedKey.split('|');
+        if ((lines ?? '') === this.lines) this.remember(key, Number(depth), result);
+      }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     }
   }
 
-  private cacheKey = (key: string, depth = this.depthOf()) =>
-    `${key}|${depth}${this.multiPV > 1 ? `|pv${this.multiPV}` : ''}`;
-
-  /** The depth the next search will run at. */
-  get depth(): number {
-    return this.depthOf();
+  /** Marks stored results that also carry the engine's second choice. */
+  private get lines() {
+    return this.multiPV > 1 ? `pv${this.multiPV}` : '';
   }
 
-  /** The stored evaluation of a position, if it has been searched. */
+  private remember(key: string, depth: number, result: PositionEval) {
+    this.cache.set(`${key}|${depth}${this.lines && `|${this.lines}`}`, result);
+    // A finished game has nothing to search, so its verdict is as deep as any.
+    const reached = result.best === null && result.depth === 0 ? Infinity : depth;
+    if (reached >= (this.deepest.get(key)?.depth ?? -1)) {
+      this.deepest.set(key, { depth: reached, result });
+    }
+  }
+
+  /** The deepest stored evaluation of a position, whatever depth is configured now. */
   cached(key: string): PositionEval | undefined {
-    return this.cache.get(this.cacheKey(key));
+    return this.deepest.get(key)?.result;
   }
 
-  /** Evaluates `fen`, searching only if there is no stored result. */
+  /** Whether the position has been searched at least as deep as is configured now. */
+  current(key: string): boolean {
+    return (this.deepest.get(key)?.depth ?? -1) >= this.depthOf();
+  }
+
+  /** Evaluates `fen`, searching only if no stored result is deep enough. */
   evaluate(fen: string, signal?: AbortSignal): Promise<PositionEval> {
     const key = positionKey(fen);
     const run = this.queue.then(async () => {
       signal?.throwIfAborted();
-      const known = this.cached(key);
-      if (known) return known;
+      if (this.current(key)) return this.cached(key)!;
       // Fixed for this search, in case the setting changes while it runs.
       const depth = this.depthOf();
       const board = new Chess(fen);
       const result = board.isGameOver() ? terminalEval(board) : await this.search(fen, depth);
-      this.cache.set(this.cacheKey(key, depth), result);
+      this.remember(key, depth, result);
       this.saveSoon();
       return result;
     });

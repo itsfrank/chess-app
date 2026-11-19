@@ -10,12 +10,15 @@ export type SettingsState = {
   models: SettingsInfo['models'];
   /** Saves some settings; rejects with the backend's message when one is invalid. */
   save: (changes: Partial<Settings>) => Promise<void>;
+  /** Opens the settings dialog. */
+  open: () => void;
 };
 
 export const SettingsContext = createContext<SettingsState>({
   settings: DEFAULT_SETTINGS,
   models: [],
   save: async () => {},
+  open: () => {},
 });
 export const useSettings = () => useContext(SettingsContext);
 
@@ -23,7 +26,7 @@ export const useSettings = () => useContext(SettingsContext);
  * Loads the settings once for the whole app. `state` is null until they have
  * arrived; if the backend cannot be reached the defaults stand in.
  */
-export function useSettingsLoader(): SettingsState | null {
+export function useSettingsLoader(): Omit<SettingsState, 'open'> | null {
   const [info, setInfo] = useState<SettingsInfo | null>(null);
 
   useEffect(() => {

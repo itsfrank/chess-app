@@ -38,6 +38,7 @@ function service(loadFrequencies: FrequencyLoader = async () => ({ d5: 0.5, Nf6:
   const evals = new Map<string, PositionEval>();
   const evaluator = {
     cached: (key: string) => evals.get(key),
+    current: (key: string) => evals.has(key),
     evaluate: async (fen: string) => {
       const result: PositionEval = { evaluation: { type: 'cp', value: 20 }, best: null, depth: 1 };
       evals.set(fen.split(' ').slice(0, 4).join(' '), result);

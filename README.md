@@ -49,15 +49,16 @@ environment file's expanded values.
 
 **Settings**, in the bottom-left corner beside the screens, opens the settings that apply everywhere:
 
-- **chess.com username**: whose games **My games** lists when it opens and repertoires are compared
-  with. Either screen can still look up another player without changing it; the first player you
-  look up is saved here if the setting is empty.
+- **chess.com username**: whose games **My games** lists and repertoires are compared with. This
+  is the only place it is set.
 - **Companion**: the model, from those your Pi login can use, and its reasoning effort. A change
   applies to conversations started afterwards.
 - **Stockfish**: the depth of the game review pass (default 16), the depth for repertoire positions
   (default 18), and how many seconds the engine thinks about the position on the board for the
-  analysis panel and the companion's checks (default 1.5). Results are cached per depth, so after a
-  change positions are searched again and the earlier results are kept.
+  analysis panel and the companion's checks (default 1.5). A stored result is used as long as it
+  was searched at least as deep as the setting asks, so lowering a depth never causes new work.
+  After raising one, the stored results are still shown, with a warning that they come from a lower
+  depth and a **Re-analyse** button that searches again only the positions that need it.
 
 Nothing changes until **Save**. Settings are stored in `.data/settings.json`.
 
@@ -90,10 +91,10 @@ The backend keeps the ten most recently used.
 
 ## Reviewing your chess.com games
 
-**My games**, in the bottom-left corner, lists a chess.com player's games. Enter a username and
-press **Load games**: the 50 most recent standard games are fetched from chess.com's public archive,
-which needs no login, and **Load older games** fetches the next 50. Variants and games from a custom
-position are left out. The username is remembered in the browser.
+**My games**, in the bottom-left corner, lists the games of the chess.com username in **Settings**.
+The 50 most recent standard games are fetched from chess.com's public archive, which needs no
+login; **Refresh** fetches them again and **Load older games** the next 50. Variants and games from
+a custom position are left out.
 
 Choose a game to put it on the board, oriented to the side you played. Step through it with the move
 list, the navigation buttons or the Left/Right arrow keys; the evaluation bar and the analysis panel
@@ -141,8 +142,8 @@ one, and the header shows how many positions you actually have to know a move in
   arranged that way. Each shows the change in positions to know (an upper bound, marked `≤`, when
   some replies would need a new line), the engine's score against your current move, and how the
   line continues. Select one to see it on the board.
-- **Your games** compares the repertoire with what you actually play. Enter your chess.com
-  username and press **Check my games**: your last 300 or so games are fetched, and those you played
+- **Your games** compares the repertoire with what you actually play. Press **Check my games**:
+  the last 300 or so games of the chess.com username in **Settings** are fetched, and those you played
   as the repertoire's colour are followed through it until they leave. The summary says how often you
   left first and how often your opponent did, and each move you played instead of the repertoire's
   is listed as a proposal to adopt it, with how many games you played it in and how often you played

@@ -13,6 +13,7 @@ function fakeEvaluator(scores: number[], best: string[]) {
   const log = { searched: 0, released: 0 };
   const evaluator = {
     cached: (key: string) => cache.get(key),
+    current: (key: string) => cache.has(key),
     evaluate: async (fen: string) => {
       const board = new Chess(fen);
       const ply = (board.moveNumber() - 1) * 2 + (board.turn() === 'b' ? 1 : 0);
@@ -39,7 +40,8 @@ const bookFile = () => join(dir, `book-${files++}.json`);
 const noBook = { loadBook: async () => [], bookFile: bookFile() };
 
 it('accepts only legal games', () => {
-  expect(parseReviewRequest({ moves })).toEqual(moves);
+  expect(parseReviewRequest({ moves })).toEqual({ moves, refresh: false });
+  expect(parseReviewRequest({ moves, refresh: true }).refresh).toBe(true);
   for (const bad of [null, {}, { moves: [] }, { moves: ['e5'] }, { moves: [1] }, { moves: 'e4' }])
     expect(() => parseReviewRequest(bad)).toThrow('Invalid game');
 });
@@ -105,4 +107,34 @@ it('still reviews the game when the explorer fails', async () => {
   await service.evaluate(moves, new AbortController().signal, ply => plies.push(ply));
   expect(plies).toHaveLength(5);
   expect(service.summary(moves)).toMatchObject({ bookUntil: null });
+});
+
+it('uses verdicts from a shallower search until asked to refresh them', async () => {
+  const { evaluator, log } = fakeEvaluator([30, 30, 35, -120, -110], []);
+  let deepEnough = true;
+  const service = new GameReviewService({
+    evaluator: { ...evaluator, current: key => deepEnough && evaluator.current(key) },
+    ...noBook,
+  });
+  const run = async (refresh: boolean) => {
+    const stale: boolean[] = [];
+    await service.evaluate(
+      moves,
+      new AbortController().signal,
+      (_ply, _result, shallow) => stale.push(shallow),
+      () => {},
+      refresh,
+    );
+    return stale;
+  };
+  expect(await run(false)).toEqual([false, false, false, false, false]);
+  expect(log.searched).toBe(5);
+
+  // The configured depth has gone up: the stored verdicts are still reported, marked stale.
+  deepEnough = false;
+  expect(await run(false)).toEqual([true, true, true, true, true]);
+  expect(log.searched).toBe(5);
+  expect(service.summary(moves)?.engine).toContain('less than depth');
+  expect(await run(true)).toEqual([false, false, false, false, false]);
+  expect(log.searched).toBe(10);
 });

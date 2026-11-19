@@ -1,4 +1,4 @@
-import { Activity, useCallback, useState } from 'react';
+import { Activity, useCallback, useMemo, useState } from 'react';
 import { App } from './App';
 import { GamesScreen } from './components/Games';
 import { RepertoireScreen } from './components/Repertoire';
@@ -24,7 +24,12 @@ export function Root() {
   });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const closeSettings = useCallback(() => setSettingsOpen(false), []);
-  const settings = useSettingsLoader();
+  const openSettings = useCallback(() => setSettingsOpen(true), []);
+  const loaded = useSettingsLoader();
+  const settings = useMemo(
+    () => loaded && { ...loaded, open: openSettings },
+    [loaded, openSettings],
+  );
   // The screens read the settings as they mount, so they wait for them.
   if (!settings) return null;
 
@@ -42,7 +47,7 @@ export function Root() {
           {title}
         </button>
       ))}
-      <button aria-haspopup="dialog" onClick={() => setSettingsOpen(true)}>
+      <button aria-haspopup="dialog" onClick={openSettings}>
         Settings
       </button>
     </nav>

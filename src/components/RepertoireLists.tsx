@@ -264,47 +264,40 @@ export function HabitList(
 ) {
   const { report, busy, onSync } = props;
   const { habits } = report;
-  const { settings, save } = useSettings();
-  const [name, setName] = useState(() => habits?.username ?? settings.chesscomUsername);
+  const { settings, open: openSettings } = useSettings();
+  const username = settings.chesscomUsername;
   return (
     <>
-      <form
-        className="games-form habit-form"
-        onSubmit={event => {
-          event.preventDefault();
-          if (!name.trim()) return;
-          // The first player looked up is taken to be the user.
-          if (!settings.chesscomUsername)
-            void save({ chesscomUsername: name.trim() }).catch(() => {});
-          onSync(name.trim());
-        }}
-      >
-        <label>
-          <span className="label">chess.com username</span>
-          <input
-            type="text"
-            value={name}
-            maxLength={50}
-            autoComplete="off"
-            spellCheck={false}
-            placeholder="Username"
-            onChange={event => setName(event.target.value)}
-          />
-        </label>
-        <button className="primary" disabled={busy || !name.trim()}>
-          {busy ? 'Working…' : habits ? 'Refresh games' : 'Check my games'}
-        </button>
-      </form>
+      <div className="games-form habit-form">
+        <span>
+          {username ? (
+            <>
+              Compared with the chess.com games of <strong>{username}</strong>.
+            </>
+          ) : (
+            <>
+              Set your chess.com username in <button onClick={openSettings}>Settings</button>.
+            </>
+          )}
+        </span>
+        {username && (
+          <button className="primary" disabled={busy} onClick={() => onSync(username)}>
+            {busy ? 'Working…' : habits ? 'Refresh games' : 'Check my games'}
+          </button>
+        )}
+      </div>
       {habits ? (
         <>
           <p className="repertoire-note">
-            {habits.games} recent games as {report.side}, checked{' '}
-            {new Date(habits.fetchedAt).toLocaleDateString()}: you left the repertoire first in{' '}
-            {habits.exits.deviation}, your opponent in {habits.exits.uncovered}, and{' '}
-            {habits.exits['line-end'] + habits.exits['game-end']} stayed in it to the end of the
-            line. Below are the moves you played instead of the repertoire&rsquo;s. One is suggested
-            when you played it more than once, at least as often as the repertoire move, and
-            Stockfish scores it within your tolerance.
+            {habits.games} recent games
+            {habits.username.toLowerCase() !== username.toLowerCase() &&
+              ` of ${habits.username}`}{' '}
+            as {report.side}, checked {new Date(habits.fetchedAt).toLocaleDateString()}: you left
+            the repertoire first in {habits.exits.deviation}, your opponent in{' '}
+            {habits.exits.uncovered}, and {habits.exits['line-end'] + habits.exits['game-end']}{' '}
+            stayed in it to the end of the line. Below are the moves you played instead of the
+            repertoire&rsquo;s. One is suggested when you played it more than once, at least as
+            often as the repertoire move, and Stockfish scores it within your tolerance.
           </p>
           {habits.habits.length ? (
             <ProposalList {...props} />

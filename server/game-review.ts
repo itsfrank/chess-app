@@ -19,9 +19,12 @@ function positionsOf(moves: string[]): string[] {
   return fens;
 }
 
-/** The moves of a review request, checked to be a legal game from the starting position. */
-export function parseReviewRequest(body: unknown): string[] {
-  const moves = (body as { moves?: unknown } | null)?.moves;
+/**
+ * A review request: its moves, checked to be a legal game from the starting
+ * position, and whether verdicts from a shallower search are to be replaced.
+ */
+export function parseReviewRequest(body: unknown): { moves: string[]; refresh: boolean } {
+  const { moves, refresh } = (body ?? {}) as { moves?: unknown; refresh?: unknown };
   if (
     !Array.isArray(moves) ||
     !moves.length ||
@@ -35,7 +38,7 @@ export function parseReviewRequest(body: unknown): string[] {
   } catch {
     throw new HttpError(400, 'Invalid game');
   }
-  return moves;
+  return { moves, refresh: refresh === true };
 }
 
 const percent = (value: number) => `${Math.round(value)}%`;
@@ -51,7 +54,7 @@ const lichessBook: BookLoader = async (fen, signal) => {
 };
 
 export type GameReviewOptions = {
-  evaluator?: Pick<Evaluator, 'cached' | 'evaluate' | 'release' | 'dispose'>;
+  evaluator?: Pick<Evaluator, 'cached' | 'current' | 'evaluate' | 'release' | 'dispose'>;
   loadBook?: BookLoader;
   bookFile?: string;
   /** The engine depth to review at, asked for before every search. */
@@ -79,16 +82,24 @@ export class GameReviewService {
     this.book = new JsonCache(options.bookFile ?? BOOK_CACHE_FILE);
   }
 
+  /** The depth a review is searched at when nothing is stored. */
+  get configuredDepth(): number {
+    return this.depth();
+  }
+
   /**
    * Evaluates the game's positions in order, reporting each as soon as it is
-   * known. Meanwhile `onBook` hears how many opening half-moves are theory
-   * each time that number grows.
+   * known, with whether it comes from a shallower search than is configured
+   * now. Such stored verdicts are used as they are unless `refresh` asks for
+   * them to be searched again. Meanwhile `onBook` hears how many opening
+   * half-moves are theory each time that number grows.
    */
   async evaluate(
     moves: string[],
     signal: AbortSignal,
-    onEval: (ply: number, result: PositionEval) => void,
+    onEval: (ply: number, result: PositionEval, stale: boolean) => void,
     onBook: (plies: number) => void = () => {},
+    refresh = false,
   ) {
     this.running++;
     const fens = positionsOf(moves);
@@ -97,7 +108,10 @@ export class GameReviewService {
     try {
       for (const [ply, fen] of fens.entries()) {
         signal.throwIfAborted();
-        onEval(ply, await this.evaluator.evaluate(fen, signal));
+        const key = positionKey(fen);
+        const known = this.evaluator.cached(key);
+        if (known && !refresh && !this.evaluator.current(key)) onEval(ply, known, true);
+        else onEval(ply, await this.evaluator.evaluate(fen, signal), false);
       }
       await book;
     } finally {
@@ -134,8 +148,10 @@ export class GameReviewService {
   /** The finished review in words for the companion, or null until every position is searched. */
   summary(moves: string[]) {
     const fens = positionsOf(moves);
-    const evals = fens.map(fen => this.evaluator.cached(positionKey(fen)));
+    const keys = fens.map(positionKey);
+    const evals = keys.map(key => this.evaluator.cached(key));
     if (evals.some(result => !result)) return null;
+    const shallow = keys.some(key => !this.evaluator.current(key));
     const review = reviewGame(moves, evals, this.bookPlies(moves, fens));
     const side = ({ accuracy, counts }: typeof review.white) => ({
       accuracy: accuracy === null ? null : Number(accuracy.toFixed(1)),
@@ -146,7 +162,9 @@ export class GameReviewService {
         move?.quality.id === id ? numberedMove(index, moves[index]) : [],
       );
     return {
-      engine: `Stockfish depth ${this.depth()}`,
+      engine: shallow
+        ? `Stockfish, partly at less than depth ${this.depth()}`
+        : `Stockfish depth ${this.depth()}`,
       white: side(review.white),
       black: side(review.black),
       /** The last move that was still opening theory. */

@@ -844,13 +844,22 @@ button.finding-eval {
 }
 
 /* Games screen */
-.games-form input {
-  font: inherit;
-  padding: 4px 8px;
+.games-form h2 {
+  font: 600 17px/1.3 var(--sans);
   color: var(--ink);
-  background: var(--canvas);
-  border: 1px solid var(--line-strong);
-  border-radius: 4px;
+}
+.games-form span button,
+.repertoire-empty button,
+.depth-warning button {
+  padding: 0;
+  border: 0;
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.depth-warning {
+  font-size: 12.5px;
+  color: var(--warning);
 }
 .game-row {
   border-bottom: 1px solid var(--line);

@@ -428,17 +428,21 @@ main.repertoire {
 }
 
 /* Games screen: the list of chess.com games, then the chosen game beside the companion */
-.games-form label {
-  display: grid;
-  flex: 1;
-  gap: 4px;
-  min-width: 160px;
-}
 .games-form {
   display: flex;
   flex-wrap: wrap;
-  align-items: end;
+  align-items: baseline;
   gap: 8px;
+}
+.games-form > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+.depth-warning {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-top: 6px;
 }
 .game-row {
   display: grid;
