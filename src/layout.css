@@ -426,3 +426,96 @@ main.repertoire {
     border-left: 0;
   }
 }
+
+/* Games screen: the list of chess.com games, then the chosen game beside the companion */
+.games-form label {
+  display: grid;
+  flex: 1;
+  gap: 4px;
+  min-width: 160px;
+}
+.games-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px;
+}
+.game-row {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  column-gap: 10px;
+  align-items: baseline;
+  width: 100%;
+  padding: 9px 6px;
+  text-align: left;
+}
+.game-details {
+  grid-column: 2 / -1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.load-older {
+  margin-top: 14px;
+}
+.game-header {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  padding-bottom: 14px;
+}
+.game-header span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.games .game-status {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.review-summary {
+  padding-bottom: 12px;
+}
+.review-summary table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.review-summary :is(th, td) {
+  padding: 1px 0 1px 4px;
+  text-align: right;
+  white-space: nowrap;
+}
+/* The name takes whatever the numbers leave and is cut short before they are. */
+.review-summary tbody th {
+  width: 100%;
+  max-width: 0;
+  padding-left: 0;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+}
+.review-summary p {
+  display: flex;
+  gap: 10px;
+  margin-top: 6px;
+  white-space: nowrap;
+}
+.review-summary p span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.move-rows button i {
+  margin-left: 3px;
+}
+.move-rows button {
+  white-space: nowrap;
+}
+@media (min-width: 901px) {
+  main.games.moves-open {
+    --moves: 186px;
+  }
+}

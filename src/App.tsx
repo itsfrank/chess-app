@@ -221,8 +221,7 @@ export function App({ modeSwitch }: { modeSwitch?: ReactNode }) {
           fen={shownFen}
           positions={positions}
           onSelectPly={selectPly}
-          coach={autoReview}
-          onCoach={setAutoReview}
+          coach={{ on: autoReview, onChange: setAutoReview }}
           onAsk={message => chat.ask(message, { fen: shownFen, moves: shownMoves }, playerColor)}
           onHighlight={highlight}
         />

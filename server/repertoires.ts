@@ -69,7 +69,7 @@ const lichessFrequencies: FrequencyLoader = async (fen, ratings, signal) => {
 };
 
 /** A JSON object kept in memory and written back shortly after it changes. */
-class JsonCache<T> {
+export class JsonCache<T> {
   private data: Record<string, T> = {};
   private timer: NodeJS.Timeout | null = null;
   private readonly file: string;

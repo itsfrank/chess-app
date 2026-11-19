@@ -1,5 +1,13 @@
 import { Chess } from 'chess.js';
-import { MAX_MESSAGE_LENGTH, type ChatRequest, type PlayerColor } from '../shared/protocol.ts';
+import {
+  GAME_RESULTS,
+  MAX_MESSAGE_LENGTH,
+  type ChatRequest,
+  type GameContext,
+  type GamePlayer,
+  type GameResult,
+  type PlayerColor,
+} from '../shared/protocol.ts';
 import { MAX_HISTORY_MOVES } from './config.ts';
 import { HttpError } from './http.ts';
 
@@ -40,8 +48,56 @@ export function parsePlayerColor(value: unknown, fallback?: PlayerColor): Player
   return color;
 }
 
+/** Text from another site, cut to one short line before it reaches the model. */
+const line = (value: unknown, max: number) =>
+  typeof value === 'string'
+    ? value
+        .replace(/[\p{C}\s]+/gu, ' ')
+        .trim()
+        .slice(0, max)
+    : '';
+
+function parsePlayer(value: unknown): GamePlayer {
+  const { name, rating } = fields(value);
+  return {
+    name: line(name, 60) || '?',
+    rating: typeof rating === 'number' && Number.isFinite(rating) ? rating : null,
+  };
+}
+
+/** The game under review: it must be legal, and the position asked about must be part of it. */
+function parseGame(input: unknown, shown: string[]): GameContext {
+  const game = fields(input);
+  const moves = game.moves;
+  if (
+    !Array.isArray(moves) ||
+    moves.length > MAX_HISTORY_MOVES ||
+    shown.some((san, index) => moves[index] !== san) ||
+    !GAME_RESULTS.includes(game.result as GameResult)
+  ) {
+    throw new HttpError(400, 'Invalid game');
+  }
+  const board = new Chess();
+  try {
+    for (const san of moves) board.move(san);
+  } catch {
+    throw new HttpError(400, 'Invalid game');
+  }
+  return {
+    white: parsePlayer(game.white),
+    black: parsePlayer(game.black),
+    result: game.result as GameResult,
+    termination: line(game.termination, 120),
+    timeClass: line(game.timeClass, 20),
+    timeControl: line(game.timeControl, 20),
+    opening: line(game.opening, 120) || null,
+    playedAt: line(game.playedAt, 30),
+    moves: board.history(),
+  };
+}
+
 export function parseChatRequest(input: unknown): ChatRequest {
-  const { message, playerColor, conversationId } = fields(input);
+  const { message, playerColor, conversationId, game } = fields(input);
   if (typeof message !== 'string' || !message.trim() || message.length > MAX_MESSAGE_LENGTH) {
     throw new HttpError(400, `Enter a message (maximum ${MAX_MESSAGE_LENGTH} characters)`);
   }
@@ -55,5 +111,6 @@ export function parseChatRequest(input: unknown): ChatRequest {
       typeof conversationId === 'string' && /^[\w-]{1,64}$/.test(conversationId)
         ? conversationId
         : undefined,
+    ...(game != null && { game: parseGame(game, moves) }),
   };
 }

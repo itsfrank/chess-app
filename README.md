@@ -1,18 +1,20 @@
 # Chess companion
 
-A local chess board with an AI companion. Play both sides on an analysis board or play against
-Maia3, and ask the companion about any position. It checks Stockfish before making engine claims and
+A local chess board with an AI companion. Play both sides on an analysis board, play against
+Maia3, or go through your chess.com games, and ask the companion about any position. It checks Stockfish before making engine claims and
 draws coloured arrows on the board that are linked to the moves in its answer.
 
 Everything runs on your machine. The only network traffic is the chat itself (sent to the model
-provider) and optional Lichess opening-explorer lookups.
+provider), optional Lichess opening-explorer lookups, and chess.com's public game archive when you
+list your games.
 
 ## Requirements
 
 - Node.js 22.12 or newer.
 - A native `stockfish` executable on `PATH` (or set `STOCKFISH_PATH`).
-- A Pi login that can use `openai-codex/gpt-6-luna`. The backend uses your existing local Pi
-  credentials; they are never sent to the browser. There is no fallback model.
+- A Pi login that can use `openai-codex/gpt-6.1-sol`, which runs at medium reasoning effort. The
+  backend uses your existing local Pi credentials; they are never sent to the browser. There is no
+  fallback model.
 - Optional: Maia3 for opponent play and a Lichess token for move frequencies (both below).
 
 ## Run
@@ -25,14 +27,16 @@ npm run dev     # terminal 2: open the URL Vite prints
 
 Stockfish, Maia3 and the Lichess token are located through the environment variables below.
 
-| Variable         | Purpose                                                              |
-| ---------------- | -------------------------------------------------------------------- |
-| `PORT`           | API port (default 3001; the Vite proxy expects 3001).                |
-| `STOCKFISH_PATH` | Stockfish executable, when it is not on `PATH`.                      |
-| `MAIA3_PATH`     | `maia3-uci` executable.                                              |
-| `HF_HOME`        | Hugging Face cache holding the Maia3 weights.                        |
-| `LICHESS_TOKEN`  | Lichess personal access token for the opening explorer.              |
-| `REPLAY_LOG`     | Serve a recorded session instead of the live model (see **Replay**). |
+| Variable         | Purpose                                                                  |
+| ---------------- | ------------------------------------------------------------------------ |
+| `PORT`           | API port (default 3001; the Vite proxy expects 3001).                    |
+| `STOCKFISH_PATH` | Stockfish executable, when it is not on `PATH`.                          |
+| `MAIA3_PATH`     | `maia3-uci` executable.                                                  |
+| `HF_HOME`        | Hugging Face cache holding the Maia3 weights.                            |
+| `LICHESS_TOKEN`  | Lichess personal access token for the opening explorer.                  |
+| `REPLAY_LOG`     | Serve a recorded session instead of the live model (see **Replay**).     |
+| `CHESS_MODEL`    | Another `openai-codex` model id for the companion, such as `gpt-6-luna`. |
+| `CHESS_THINKING` | Its reasoning effort (`low`, `medium`, `high`); default `medium`.        |
 
 ### Shared setup on this machine
 
@@ -71,6 +75,43 @@ against a subscription, and zero can mean pricing was unavailable.
 
 Conversations live in backend memory: restarting the backend or reloading the page starts a new one.
 The backend keeps the ten most recently used.
+
+## Reviewing your chess.com games
+
+**My games**, in the bottom-left corner, lists a chess.com player's games. Enter a username and
+press **Load games**: the 50 most recent standard games are fetched from chess.com's public archive,
+which needs no login, and **Load older games** fetches the next 50. Variants and games from a custom
+position are left out. The username is remembered in the browser.
+
+Choose a game to put it on the board, oriented to the side you played. Step through it with the move
+list, the navigation buttons or the Left/Right arrow keys; the evaluation bar and the analysis panel
+follow along. The board is read-only: it shows the game as played.
+
+**Move quality.** Opening a game starts a Stockfish pass over every position (depth 16 with the two
+best lines, around twenty seconds for a typical game the first time; results are cached in `.data/game-eval-cache.json`). Each move is then labelled
+by the winning chances it gave up for the side that played it: **Best** is the engine's own move,
+**Excellent** loses at most 2 percentage points, **Good** 5, **Inaccuracy** 10, **Mistake** 20, and
+anything more is a **Blunder**. A best move becomes **Great**, the blue `!`, when it was the only
+good one: the engine's second choice would have cost more than 10 points, and the move was not a
+recapture or the capture of a piece worth at least the one taking it. Opening moves are **Book**
+while they are common among strong players in the Lichess explorer (at least 5% of games rated
+2000 and up, within the first 15 moves, and not an engine error); this needs the Lichess token and
+is skipped without it. The move list marks great
+moves with `!`, best moves with ★ and errors with `?!`, `?` and `??`, the board pins the label to the move just played, and the table above the analysis panel
+counts each label per player and gives each side's **accuracy** out of 100. Winning chances and
+accuracy use Lichess's published formulas, so the labels and numbers will be close to chess.com's
+game review but not identical; there are no Brilliant or Miss labels.
+
+Ask the companion about the position on the board. With each question it also gets the players, the
+ratings, the result and every move of the game, so it knows which side you had and what happened
+later, and once the engine pass has finished it gets the accuracies and every inaccuracy, mistake and
+blunder too. Its own engine checks start from the position shown, or from the one before the move
+just played when you ask why that move was good or bad, and reach at most 20 half-moves further
+into the game.
+
+**Explain**, beside the verdict on the shown move, steps the board back to where that move was
+chosen and asks the companion to compare it with the engine's choice, with an arrow for each. Each game has its own conversation, kept until you choose another game. **← Games** returns to
+the list and **Back to game** to the review.
 
 ## Simplifying a repertoire
 
@@ -146,7 +187,8 @@ To replay a recording through the real frontend without calling the model:
 npm run replay -- .data/sessions/<uuid>.jsonl
 ```
 
-Reload the app and repeat the same moves and messages. Each request must match the recorded message,
+Reload the app and repeat the same moves and messages (for a reviewed game, step to the same
+positions). Each request must match the recorded message,
 position and move history exactly; a mismatch is reported and does not consume the turn. Events come
 back in their original order, immediately rather than with the original timing. Replayed usage is not
 added to lifetime totals, and opponent play is unavailable; the analysis panel still works. Restart the replay server to rewind.
@@ -165,15 +207,19 @@ TEST_STOCKFISH=1 TEST_MAIA3=1 npm test   # also exercise the installed engines
 shared/   Used by both sides: the wire protocol, SAN recognition and the arrow palette
   repertoire.ts     position graph of a PGN  consolidation.ts  proposals and rules
   soundness.ts      engine verdicts, move frequencies
+  quality.ts        move labels and accuracy for a reviewed game
 server/   Local HTTP API
   index.ts      startup and shutdown        app.ts         routing
   chat.ts       conversations and turns     tools.ts       the agent's three tools
   stockfish.ts  analysis engine             opponent.ts    Maia3 subprocess
   lichess.ts    opening explorer            recording.ts   session recording and replay
+  chesscom.ts   a player's game archive     snapshot.ts    request validation
+  game-review.ts  engine pass over a game for move quality
   repertoires.ts  imported repertoires and their analysis   evaluator.ts  fixed-depth Stockfish
 src/      React frontend
   App.tsx       game state and layout       hooks/         chat queue, opponent, analysis
-  Root.tsx      board / repertoire switch   components/Repertoire*.tsx  the repertoire screen
+  Root.tsx      board / games / repertoire  components/Repertoire*.tsx  the repertoire screen
+  components/Games.tsx  chess.com game list and review
   components/   board, chat, analysis panel annotations.ts move links in rendered Markdown
   style.css     appearance                  layout.css     sizing and breakpoints
 docs/design/  Redesign screenshots and a script that generates a synthetic replay fixture

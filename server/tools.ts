@@ -15,13 +15,15 @@ import { analyze, type UciTrace } from './stockfish.ts';
 export type ToolContext = {
   /** The position submitted with the current turn. */
   fen: string;
+  /** The position one move earlier, when the snapshot has a history. */
+  previousFen?: string;
   /** Arrows drawn so far in the current turn. */
   arrows: Annotation[];
   emit: (event: ServerEvent) => void;
   traceUci: UciTrace;
 };
 
-const MAX_HYPOTHETICAL_MOVES = 20;
+export const MAX_HYPOTHETICAL_MOVES = 20;
 
 const square = Type.String({ pattern: '^[a-h][1-8]$' });
 const hypotheticalMoves = Type.Optional(
@@ -45,10 +47,16 @@ export function createTools(context: ToolContext) {
     defineTool({
       name: 'analyze_position',
       label: 'Stockfish',
-      description: `Evaluate the submitted position and return the top ${ENGINE.multiPV} engine moves, White-perspective scores and continuations. Optionally apply hypothetical moves.`,
-      parameters: Type.Object({ moves: hypotheticalMoves }),
+      description: `Evaluate the submitted position and return the top ${ENGINE.multiPV} engine moves, White-perspective scores and continuations. Optionally apply hypothetical moves. Set beforeLastMove to start from the position before the last move of the snapshot's history instead: use it to see what else could have been played there, or with moves set to an alternative to see where that leads.`,
+      parameters: Type.Object({
+        moves: hypotheticalMoves,
+        beforeLastMove: Type.Optional(Type.Boolean()),
+      }),
       execute: async (_id, args, signal) => {
-        const result = await analyze(context.fen, args.moves, signal, context.traceUci);
+        if (args.beforeLastMove && !context.previousFen)
+          throw new Error('The snapshot has no earlier move');
+        const start = args.beforeLastMove ? context.previousFen! : context.fen;
+        const result = await analyze(start, args.moves, signal, context.traceUci);
         context.emit({ type: 'analysis', result });
         return textResult(result);
       },

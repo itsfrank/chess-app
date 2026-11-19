@@ -2,7 +2,9 @@ import { Chess } from 'chess.js';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { ServerEvent, Totals } from '../shared/protocol.ts';
 import { eventLine, type ChatService } from './chat.ts';
+import { listGames } from './chesscom.ts';
 import { MAX_PGN_CHARS } from './config.ts';
+import { parseReviewRequest, type GameReviewService } from './game-review.ts';
 import { errorMessage, HttpError, readJson, sendJson } from './http.ts';
 import { explore } from './lichess.ts';
 import type { MaiaOpponent } from './opponent.ts';
@@ -20,13 +22,15 @@ export type AppOptions = {
   replay?: Replay;
   opponent?: MaiaOpponent;
   repertoires?: RepertoireService;
+  gameReview?: GameReviewService;
 };
 
 const statusOf = (error: unknown, fallback: number) =>
   error instanceof HttpError ? error.status : fallback;
 
 /** The local HTTP API: usage totals, position analysis, opponent moves, and the streaming chat endpoint. */
-export function createApp({ lifetime, chat, replay, opponent, repertoires }: AppOptions): Server {
+export function createApp(options: AppOptions): Server {
+  const { lifetime, chat, replay, opponent, repertoires, gameReview } = options;
   const usage = (res: ServerResponse) =>
     sendJson(res, 200, { lifetime: replay?.initialLifetime ?? lifetime });
 
@@ -58,6 +62,40 @@ export function createApp({ lifetime, chat, replay, opponent, repertoires }: App
       json(res, async signal => lookup(parseFen(await readJson(req)), signal));
   const analysis = position((fen, signal) => analyze(fen, [], signal));
   const explorer = position((fen, signal) => explore(fen, {}, signal));
+
+  /** `/api/chesscom/games?username=…&before=…`: a page of the player's recent games. */
+  const games = (req: IncomingMessage, res: ServerResponse) =>
+    json(res, signal => {
+      const query = new URL(req.url!, 'http://localhost').searchParams;
+      const before = query.get('before');
+      return listGames(query.get('username') ?? '', before ? Number(before) : undefined, signal);
+    });
+
+  /** Streams a game's review as NDJSON: the engine's verdict on each position, and its book depth. */
+  const review = async (req: IncomingMessage, res: ServerResponse) => {
+    const controller = new AbortController();
+    const onClose = () => controller.abort();
+    res.on('close', onClose);
+    try {
+      if (!gameReview) throw new HttpError(503, 'Game review is unavailable');
+      const moves = parseReviewRequest(await readJson(req));
+      res.writeHead(200, { 'Content-Type': 'application/x-ndjson', 'Cache-Control': 'no-cache' });
+      const line = (value: object) => res.write(JSON.stringify(value) + '\n');
+      await gameReview.evaluate(
+        moves,
+        controller.signal,
+        (ply, result) => line({ ply, ...result }),
+        book => line({ book }),
+      );
+    } catch (error) {
+      if (!res.headersSent) sendJson(res, statusOf(error, 502), { message: errorMessage(error) });
+      else if (!controller.signal.aborted)
+        res.write(JSON.stringify({ error: errorMessage(error) }) + '\n');
+    } finally {
+      res.off('close', onClose);
+      res.end();
+    }
+  };
 
   /** `/api/repertoires`, `/api/repertoires/:id` and `/api/repertoires/:id/:action`. */
   const repertoire = (req: IncomingMessage, res: ServerResponse) =>
@@ -106,6 +144,8 @@ export function createApp({ lifetime, chat, replay, opponent, repertoires }: App
     else if (route === 'POST /api/explorer') void explorer(req, res);
     else if (route === 'POST /api/opponent') void opponentMove(req, res);
     else if (route === 'POST /api/chat') void chatTurn(req, res);
+    else if (/^GET \/api\/chesscom\/games(\?|$)/.test(route)) void games(req, res);
+    else if (route === 'POST /api/games/review') void review(req, res);
     else if (/^\/api\/repertoires(\/|$)/.test(req.url ?? '')) void repertoire(req, res);
     else res.writeHead(404).end();
   });

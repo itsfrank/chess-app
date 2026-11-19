@@ -18,6 +18,8 @@ const ARROW_INSET = 20;
 /** Sideways shift that keeps a candidate arrow visible beside a companion arrow on the same squares. */
 const OVERLAP_OFFSET = 18;
 
+export type SquareBadge = { square: Square; glyph: string; className: string; title: string };
+
 /** A click-selected piece, plus its destination once a promotion choice is pending. */
 type Selection = { fen: string; from: Square; to?: Square };
 
@@ -35,6 +37,8 @@ export function Board(props: {
   candidates: Annotation[];
   /** Rendered to the left of the board. */
   evalBar: ReactNode;
+  /** A verdict pinned to the corner of a square, such as the quality of the move that landed there. */
+  badge?: SquareBadge;
   /** Distinguishes this board's elements when more than one board is mounted. */
   id?: string;
 }) {
@@ -107,6 +111,7 @@ export function Board(props: {
             active={activeArrow}
             candidates={candidates}
             flipped={flipped}
+            badge={props.badge}
           />
         </div>
       </div>
@@ -140,8 +145,10 @@ function ArrowOverlay(props: {
   active: string | null;
   candidates: Annotation[];
   flipped: boolean;
+  badge?: SquareBadge;
 }) {
-  const { arrows, active, candidates, flipped } = props;
+  const { arrows, active, candidates, flipped, badge } = props;
+  const [badgeX, badgeY] = badge ? squareCenter(badge.square, flipped) : [0, 0];
   const sameSquares = (a: Annotation, b: Annotation) =>
     (a.from === b.from && a.to === b.to) || (a.from === b.to && a.to === b.from);
 
@@ -164,6 +171,18 @@ function ArrowOverlay(props: {
 
   return (
     <svg className="annotation-overlay" viewBox="0 0 800 800" aria-hidden="true">
+      {badge && (
+        <g
+          className={`square-badge ${badge.className}`}
+          transform={`translate(${Math.min(badgeX + 40, 778)} ${Math.max(badgeY - 40, 22)})`}
+        >
+          <title>{badge.title}</title>
+          <circle r="20" />
+          <text textAnchor="middle" dominantBaseline="central">
+            {badge.glyph}
+          </text>
+        </g>
+      )}
       <defs>
         {[...arrows, ...candidates].map(arrow => (
           <marker

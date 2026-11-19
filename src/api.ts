@@ -1,7 +1,9 @@
 import type {
   Analysis,
+  PositionEval,
   ChatRequest,
   ExplorerResult,
+  GameArchivePage,
   OpponentMove,
   OpponentRequest,
   RepertoireReport,
@@ -51,12 +53,45 @@ export const fetchAnalysis = (fen: string, signal: AbortSignal) =>
 export const fetchExplorer = (fen: string, signal: AbortSignal) =>
   postForJson<ExplorerResult>('/api/explorer', { fen }, signal);
 
+/** A page of a chess.com player's recent games, ending before `before` when given. */
+export async function fetchGames(
+  username: string,
+  before: number | null,
+  signal: AbortSignal,
+): Promise<GameArchivePage> {
+  const query = new URLSearchParams({ username, ...(before && { before: String(before) }) });
+  const response = await fetch(`/api/chesscom/games?${query}`, { signal });
+  if (!response.ok) throw await failure(response);
+  return response.json();
+}
+
 /** Sends a chat turn and yields the server's events as they stream in. */
 export async function* streamChat(
   request: ChatRequest,
   signal: AbortSignal,
 ): AsyncGenerator<ServerEvent> {
-  const response = await postJson('/api/chat', request, signal);
+  yield* ndjson<ServerEvent>(await postJson('/api/chat', request, signal));
+}
+
+/** The engine's verdict on one position of a game, or how many opening half-moves are theory. */
+export type ReviewEvent = (PositionEval & { ply: number }) | { book: number };
+
+/** A game's review as it is worked out: positions in order, book depth as it is found. */
+export async function* streamGameReview(
+  moves: string[],
+  signal: AbortSignal,
+): AsyncGenerator<ReviewEvent> {
+  const lines = ndjson<ReviewEvent | { error: string }>(
+    await postJson('/api/games/review', { moves }, signal),
+  );
+  for await (const line of lines) {
+    if ('error' in line) throw new Error(line.error);
+    yield line;
+  }
+}
+
+/** The lines of an NDJSON response as they arrive. */
+async function* ndjson<T>(response: Response): AsyncGenerator<T> {
   if (!response.ok) throw await failure(response);
   if (!response.body) throw new Error('Missing response stream');
   const reader = response.body.getReader();

@@ -10,13 +10,23 @@ export const LICHESS_TOKEN_FILE = join(DATA_DIR, 'lichess-token');
 export const MAIA_DIR = join(DATA_DIR, 'maia3-spike');
 export const REPERTOIRES_DIR = join(DATA_DIR, 'repertoires');
 export const EVAL_CACHE_FILE = join(DATA_DIR, 'eval-cache.json');
+export const BOOK_CACHE_FILE = join(DATA_DIR, 'book-cache.json');
+export const GAME_EVAL_CACHE_FILE = join(DATA_DIR, 'game-eval-cache.json');
 export const FREQUENCY_CACHE_FILE = join(DATA_DIR, 'frequency-cache.json');
 
 export const PORT = Number(process.env.PORT || 3001);
 
-/** The only model the companion uses; there is deliberately no fallback. */
-export const MODEL = { provider: 'openai-codex', id: 'gpt-6-luna' } as const;
-export const MODEL_NAME = `${MODEL.provider}/${MODEL.id}`;
+/**
+ * The only model the companion uses; there is deliberately no fallback.
+ * `CHESS_MODEL` picks another model of the same provider and `CHESS_THINKING`
+ * its reasoning effort, for comparing models.
+ */
+export const MODEL = {
+  provider: 'openai-codex',
+  id: process.env.CHESS_MODEL || 'gpt-6.1-sol',
+  thinking: process.env.CHESS_THINKING || 'medium',
+};
+export const MODEL_NAME = `${MODEL.provider}/${MODEL.id}:${MODEL.thinking}`;
 
 export const ENGINE = {
   path: process.env.STOCKFISH_PATH || 'stockfish',
@@ -34,6 +44,14 @@ export const BATCH_ENGINE = {
   hashMB: 128,
   timeoutMs: 120_000,
 };
+/** Game review searches every position of a game while the user waits, so it is shallower. */
+export const GAME_REVIEW_DEPTH = 16;
+export const MAX_REVIEW_MOVES = 600;
+/**
+ * Opening theory, approximated by what strong Lichess players actually play: a move is book while
+ * it is among the first half-moves and at least this common in these rating groups.
+ */
+export const BOOK = { maxPlies: 30, ratings: [2000, 2200, 2500], minShare: 0.05, minGames: 100 };
 /** Lichess games that weight repertoire lines: a 1400 player's range, at the slower speeds. */
 export const DEFAULT_RATINGS = [1200, 1400];
 export const FREQUENCY_SPEEDS = ['blitz', 'rapid', 'classical'];

@@ -1,17 +1,19 @@
 import { randomUUID } from 'node:crypto';
 import type { ServerResponse } from 'node:http';
+import { Chess } from 'chess.js';
 import {
   createAgentSession,
   createExtensionRuntime,
   SessionManager,
   SettingsManager,
   type AgentSession,
+  type CreateAgentSessionOptions,
   type ModelRuntime,
   type ResourceLoader,
 } from '@earendil-works/pi-coding-agent';
 import type { ChatRequest, ServerEvent, Totals } from '../shared/protocol.ts';
 import { annotationErrors, repairAnnotations } from './annotation-feedback.ts';
-import { ENGINE, MAX_CONVERSATIONS, MODEL_NAME, SESSIONS_DIR } from './config.ts';
+import { ENGINE, MAX_CONVERSATIONS, MODEL, MODEL_NAME, SESSIONS_DIR } from './config.ts';
 import { ConversationStore } from './conversations.ts';
 import { errorMessage, HttpError } from './http.ts';
 import { SYSTEM_PROMPT } from './prompt.ts';
@@ -19,6 +21,7 @@ import { Recorder } from './recording.ts';
 import { createTools, toolStatus, type ToolContext } from './tools.ts';
 import { emptyTotals, saveTotals } from './usage.ts';
 
+type ThinkingLevel = CreateAgentSessionOptions['thinkingLevel'];
 export type Model = NonNullable<ReturnType<ModelRuntime['getModel']>>;
 
 type Conversation = ToolContext & {
@@ -46,6 +49,14 @@ const resourceLoader: ResourceLoader = {
   reload: async () => {},
 };
 
+/** The position before the last of `moves`, which are known to be legal. */
+function previousFen(moves: string[]): string | undefined {
+  if (!moves.length) return undefined;
+  const board = new Chess();
+  for (const san of moves.slice(0, -1)) board.move(san);
+  return board.fen();
+}
+
 const NDJSON = { 'Content-Type': 'application/x-ndjson', 'Cache-Control': 'no-cache' };
 export const eventLine = (event: ServerEvent) => JSON.stringify(event) + '\n';
 
@@ -55,13 +66,21 @@ export class ChatService {
   private readonly model: Model;
   /** Shared with the usage endpoint and mutated as turns report usage. */
   private readonly lifetime: Totals;
+  private readonly reviewGame?: (moves: string[]) => unknown;
   private readonly conversations = new ConversationStore<Conversation>({
     max: MAX_CONVERSATIONS,
     isBusy: conversation => !!conversation.turn,
     dispose: conversation => conversation.session?.dispose(),
   });
 
-  constructor(options: { modelRuntime: ModelRuntime; model: Model; lifetime: Totals }) {
+  constructor(options: {
+    modelRuntime: ModelRuntime;
+    model: Model;
+    lifetime: Totals;
+    /** The engine's review of a finished game, once it is complete. */
+    reviewGame?: (moves: string[]) => unknown;
+  }) {
+    this.reviewGame = options.reviewGame;
     this.modelRuntime = options.modelRuntime;
     this.model = options.model;
     this.lifetime = options.lifetime;
@@ -82,9 +101,10 @@ export class ChatService {
       void conversation.session?.abort();
     };
 
-    const { message, fen, moves, playerColor } = request;
-    recorder.record('request', { message, fen, moves, playerColor });
+    const { message, fen, moves, playerColor, game } = request;
+    recorder.record('request', { message, fen, moves, playerColor, ...(game && { game }) });
     conversation.fen = fen;
+    conversation.previousFen = previousFen(moves);
     conversation.arrows = [];
     conversation.emit = event => {
       recorder.record('client', event);
@@ -159,6 +179,7 @@ export class ChatService {
     const { session } = await createAgentSession({
       modelRuntime: this.modelRuntime,
       model: this.model,
+      thinkingLevel: MODEL.thinking as ThinkingLevel,
       resourceLoader,
       tools: names,
       customTools: tools,
@@ -206,9 +227,14 @@ export class ChatService {
     };
 
     try {
-      const { message, fen, moves, playerColor } = request;
+      const { message, fen, moves, playerColor, game } = request;
+      const engineReview = game && this.reviewGame?.(game.moves);
+      const review = game
+        ? `\n\nGame under review: ${JSON.stringify(game)}` +
+          (engineReview ? `\n\nEngine review of the game: ${JSON.stringify(engineReview)}` : '')
+        : '';
       await prompt(
-        `Board snapshot: ${JSON.stringify({ fen, moves, playerColor })}\n\nUser: ${message}`,
+        `Board snapshot: ${JSON.stringify({ fen, moves, playerColor })}${review}\n\nUser: ${message}`,
       );
       const remaining = await repairAnnotations({
         errors: () => annotationErrors(fen, text, conversation.arrows),

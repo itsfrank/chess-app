@@ -15,10 +15,47 @@ export const RATING_BUCKETS = [0, 1000, 1200, 1400, 1600, 1800, 2000, 2200, 2500
 /** A position as the client sees it. `fen` must equal the result of replaying `moves`. */
 export type Snapshot = { fen: string; moves: string[] };
 
+/** One side of a finished game. */
+export type GamePlayer = { name: string; rating: number | null };
+
+/** A finished game the user is studying; `moves` is the whole game in SAN. */
+export type GameContext = {
+  white: GamePlayer;
+  black: GamePlayer;
+  result: GameResult;
+  /** How it ended, in the source's words: "frk won by resignation". */
+  termination: string;
+  timeClass: string;
+  timeControl: string;
+  opening: string | null;
+  playedAt: string;
+  moves: string[];
+};
+export const GAME_RESULTS = ['1-0', '0-1', '1/2-1/2'] as const;
+export type GameResult = (typeof GAME_RESULTS)[number];
+
+/** A game from a player's chess.com archive. */
+export type ArchivedGame = GameContext & {
+  /** The game's page on chess.com; unique per game. */
+  url: string;
+  /** The side the requested player had. */
+  playerColor: PlayerColor;
+};
+export type GameArchivePage = {
+  /** The player's name as chess.com spells it. */
+  username: string;
+  /** Newest first. */
+  games: ArchivedGame[];
+  /** Pass as `before` to get the next page; null when there are no older games. */
+  older: number | null;
+};
+
 export type ChatRequest = Snapshot & {
   message: string;
   playerColor: PlayerColor;
   conversationId?: string;
+  /** Set when the snapshot is a position from a finished game under review. */
+  game?: GameContext;
 };
 export type OpponentRequest = Snapshot & { playerColor: PlayerColor; elo: number };
 export type OpponentMove = { move: string; san: string; fen: string };
@@ -80,7 +117,13 @@ export type ServerEvent =
   | { type: 'done' };
 
 /** A fixed-depth engine verdict on one position; `best` is the engine's move in SAN. */
-export type PositionEval = { evaluation: Evaluation; best: string | null; depth: number };
+export type PositionEval = {
+  evaluation: Evaluation;
+  best: string | null;
+  depth: number;
+  /** The score after the engine's second choice, when it was asked for one and there is one. */
+  second?: Evaluation;
+};
 
 export type RepertoireSummary = {
   id: string;

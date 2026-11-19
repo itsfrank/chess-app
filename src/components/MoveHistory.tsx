@@ -7,7 +7,12 @@ const EDITABLE = 'input, textarea, select, [contenteditable="true"]';
 type Props = { moves: string[]; ply: number; onSelect: (ply: number) => void };
 
 /** Steps through the game so far with buttons or the Left/Right keys. */
-export function HistoryNavigation({ moves, ply, onSelect }: Props) {
+export function HistoryNavigation({
+  moves,
+  ply,
+  onSelect,
+  endLabel = 'Return to live game',
+}: Props & { /** Names the button that jumps to the last position. */ endLabel?: string }) {
   const live = ply === moves.length;
 
   const onKey = useEffectEvent((event: KeyboardEvent) => {
@@ -57,8 +62,8 @@ export function HistoryNavigation({ moves, ply, onSelect }: Props) {
         <Icon name="right" />
       </button>
       <button
-        aria-label="Return to live game"
-        title="Return to live game"
+        aria-label={endLabel}
+        title={endLabel}
         disabled={live}
         onClick={() => onSelect(moves.length)}
       >
@@ -68,8 +73,20 @@ export function HistoryNavigation({ moves, ply, onSelect }: Props) {
   );
 }
 
+/** A verdict shown beside a move: a short glyph, styled by `className` and explained by `title`. */
+export type MoveMark = { glyph: string; className: string; title: string };
+
 /** The moves played so far as a scoresheet; selecting one shows the position after it. */
-export function MoveList({ moves, ply, onSelect }: Props) {
+export function MoveList({
+  moves,
+  ply,
+  onSelect,
+  marks,
+}: Props & {
+  /** One entry per move, where there is something to say about it. */ marks?: (
+    MoveMark | undefined
+  )[];
+}) {
   const live = ply === moves.length;
   const list = useRef<HTMLDivElement>(null);
 
@@ -91,9 +108,12 @@ export function MoveList({ moves, ply, onSelect }: Props) {
               {index % 2 === 0 && <span>{index / 2 + 1}</span>}
               <button
                 aria-current={ply === index + 1 ? 'step' : undefined}
+                className={marks?.[index]?.className}
+                title={marks?.[index]?.title}
                 onClick={() => onSelect(index + 1)}
               >
                 {san}
+                {marks?.[index]?.glyph && <i>{marks[index].glyph}</i>}
               </button>
             </Fragment>
           ))}

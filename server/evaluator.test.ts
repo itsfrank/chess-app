@@ -28,6 +28,17 @@ it('takes the last exact score, from White’s perspective, with the engine’s 
     value: -3,
   });
   expect(parseEval([], afterE4)).toBeUndefined();
+
+  const two = [
+    'info depth 16 seldepth 20 multipv 1 score cp 30 nodes 1 nps 1 time 1 pv e7e5',
+    'info depth 16 seldepth 20 multipv 2 score cp 90 nodes 1 nps 1 time 1 pv c7c5',
+  ];
+  expect(parseEval(two, afterE4)).toEqual({
+    evaluation: { type: 'cp', value: -30 },
+    best: 'e5',
+    depth: 16,
+    second: { type: 'cp', value: -90 },
+  });
 });
 
 it('scores finished games without an engine and remembers them', async () => {

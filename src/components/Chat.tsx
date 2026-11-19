@@ -1,4 +1,12 @@
-import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  Fragment,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { MAX_MESSAGE_LENGTH } from '../../shared/protocol';
 import type { PositionInfo } from '../chess';
 import type { ChatState } from '../hooks/useChat';
@@ -20,20 +28,20 @@ export function Chat(props: {
   positions: Map<string, PositionInfo>;
   /** Shows the position after `ply` half-moves on the board. */
   onSelectPly: (ply: number) => void;
-  /** Whether every move is reviewed automatically. */
-  coach: boolean;
-  onCoach: (coach: boolean) => void;
+  /** Whether every move is reviewed automatically; omitted where no moves are played. */
+  coach?: { on: boolean; onChange: (on: boolean) => void };
   onAsk: (message: string) => void;
   onHighlight: Highlight;
 }) {
-  const { chat, analysisPanel, fen, positions, onSelectPly, coach, onCoach, onAsk, onHighlight } =
-    props;
+  const { chat, analysisPanel, fen, positions, onSelectPly, coach, onAsk, onHighlight } = props;
   const { status, busy, queued } = chat;
   // A review's own heading already names the move, so its "Played …" line would only repeat it.
   const messages = chat.messages.filter(
     message => message.role === 'assistant' || message.kind === 'question',
   );
   const [input, setInput] = useState('');
+  /** Each screen has its own composer, and a hidden screen stays in the document. */
+  const inputId = useId();
   /** Whether the list is scrolled to the end and should stay there as text streams in. */
   const [following, setFollowing] = useState(true);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -135,13 +143,13 @@ export function Chat(props: {
           submit();
         }}
       >
-        <label className="sr-only" htmlFor="chat">
+        <label className="sr-only" htmlFor={inputId}>
           Message the companion
         </label>
         <div className="composer-field">
           <textarea
             ref={inputRef}
-            id="chat"
+            id={inputId}
             rows={1}
             value={input}
             maxLength={MAX_MESSAGE_LENGTH}
@@ -163,15 +171,17 @@ export function Chat(props: {
           </button>
         </div>
         <div className="composer-footer">
-          <label className="switch-label" title={COACH_HELP}>
-            <input
-              type="checkbox"
-              className="switch"
-              checked={coach}
-              onChange={event => onCoach(event.target.checked)}
-            />
-            Coach every move
-          </label>
+          {coach && (
+            <label className="switch-label" title={COACH_HELP}>
+              <input
+                type="checkbox"
+                className="switch"
+                checked={coach.on}
+                onChange={event => coach.onChange(event.target.checked)}
+              />
+              Coach every move
+            </label>
+          )}
           <span role="status">{queued ? `${status} · ${queued} queued` : status}</span>
           {busy && (
             <button type="button" onClick={chat.stop}>

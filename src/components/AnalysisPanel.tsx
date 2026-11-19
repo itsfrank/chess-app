@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import type { Analysis, Evaluation, ExplorerResult } from '../../shared/protocol';
 import { formatLine, lineColors, scoreText, whiteShare } from '../analysis';
 import type { AnalysisState, AnalysisTab, PositionResult } from '../hooks/useAnalysis';
@@ -34,6 +35,7 @@ export function EvalBar({ score, flipped }: { score: Evaluation | undefined; fli
 export function AnalysisPanel({ analysis, fen }: { analysis: AnalysisState; fen: string }) {
   const { tab, setTab, engine, explorer, retry, showArrows, setShowArrows } = analysis;
   const result = tab === 'engine' ? engine : explorer;
+  const id = useId();
   const source =
     tab === 'explorer'
       ? 'Lichess · rated games'
@@ -48,9 +50,9 @@ export function AnalysisPanel({ analysis, fen }: { analysis: AnalysisState; fen:
           <button
             key={name}
             role="tab"
-            id={`tab-${name}`}
+            id={`${id}-tab-${name}`}
             aria-selected={tab === name}
-            aria-controls={`panel-${name}`}
+            aria-controls={`${id}-panel-${name}`}
             onClick={() => setTab(name)}
           >
             {title}
@@ -61,8 +63,8 @@ export function AnalysisPanel({ analysis, fen }: { analysis: AnalysisState; fen:
       <div
         className="analysis-body"
         role="tabpanel"
-        id={`panel-${tab}`}
-        aria-labelledby={`tab-${tab}`}
+        id={`${id}-panel-${tab}`}
+        aria-labelledby={`${id}-tab-${tab}`}
       >
         {result.error ? (
           <div className="analysis-message">

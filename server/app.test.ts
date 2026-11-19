@@ -95,6 +95,19 @@ it('analyses positions, answering finished games without starting an engine', as
   }
 });
 
+it('lists chess.com games, validating the username first', async () => {
+  const invalid = await fetch(`${url}/api/chesscom/games?username=a%20b`);
+  expect(invalid.status).toBe(400);
+  expect(await invalid.json()).toEqual({ message: 'Enter a chess.com username' });
+  expect((await post('/api/chesscom/games', {})).status).toBe(404);
+});
+
+it('reviews games only when the service is present', async () => {
+  const response = await post('/api/games/review', { moves: ['e4'] });
+  expect(response.status).toBe(503);
+  expect(await response.json()).toEqual({ message: 'Game review is unavailable' });
+});
+
 it('has no opponent during replay', async () => {
   const response = await post('/api/opponent', {});
   expect(response.status).toBe(409);

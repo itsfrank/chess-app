@@ -10,25 +10,36 @@ import { BATCH_ENGINE, ENGINE } from './config.ts';
 const INFO = /info depth (\d+) .*?score (cp|mate) (-?\d+)(.*?) pv (\S+)/;
 const SAVE_DELAY_MS = 5000;
 
+/** The last exact score reported for the engine's `rank`-th choice, as the regex match. */
+function lastScore(lines: string[], rank: number) {
+  for (let index = lines.length - 1; index >= 0; index--) {
+    const match = lines[index].match(INFO);
+    if (!match || /bound/.test(match[4])) continue;
+    if (Number(lines[index].match(/ multipv (\d+) /)?.[1] ?? 1) === rank) return match;
+  }
+  return undefined;
+}
+
 /** The evaluation the engine reported last, from White's perspective. */
 export function parseEval(lines: string[], fen: string): PositionEval | undefined {
   const board = new Chess(fen);
   const sign = board.turn() === 'w' ? 1 : -1;
-  for (let index = lines.length - 1; index >= 0; index--) {
-    const match = lines[index].match(INFO);
-    if (!match || /bound/.test(match[4])) continue;
-    const [, depth, type, value, , uci] = match;
-    try {
-      return {
-        evaluation: { type: type as 'cp' | 'mate', value: Number(value) * sign },
-        best: board.move(uci).san,
-        depth: Number(depth),
-      };
-    } catch {
-      return undefined;
-    }
+  const [first, second] = [lastScore(lines, 1), lastScore(lines, 2)];
+  if (!first) return undefined;
+  const score = (match: RegExpMatchArray) => ({
+    type: match[2] as 'cp' | 'mate',
+    value: Number(match[3]) * sign,
+  });
+  try {
+    return {
+      evaluation: score(first),
+      best: board.move(first[5]).san,
+      depth: Number(first[1]),
+      ...(second && { second: score(second) }),
+    };
+  } catch {
+    return undefined;
   }
-  return undefined;
 }
 
 function terminalEval(board: Chess): PositionEval {
@@ -51,9 +62,14 @@ export class Evaluator {
   private queue: Promise<unknown> = Promise.resolve();
   private saveTimer: NodeJS.Timeout | null = null;
   private readonly file: string;
+  private readonly depth: number;
+  private readonly multiPV: number;
 
-  constructor(file: string) {
+  /** With `multiPV` 2 every result also carries the score of the engine's second choice. */
+  constructor(file: string, depth: number = BATCH_ENGINE.depth, multiPV = 1) {
     this.file = file;
+    this.depth = depth;
+    this.multiPV = multiPV;
     try {
       const stored = JSON.parse(readFileSync(file, 'utf8')) as Record<string, PositionEval>;
       this.cache = new Map(Object.entries(stored));
@@ -62,7 +78,8 @@ export class Evaluator {
     }
   }
 
-  private cacheKey = (key: string) => `${key}|${BATCH_ENGINE.depth}`;
+  private cacheKey = (key: string) =>
+    `${key}|${this.depth}${this.multiPV > 1 ? `|pv${this.multiPV}` : ''}`;
 
   /** The stored evaluation of a position, if it has been searched. */
   cached(key: string): PositionEval | undefined {
@@ -96,7 +113,8 @@ export class Evaluator {
     });
     child.stdin.write(
       `uci\nsetoption name Threads value ${BATCH_ENGINE.threads}\n` +
-        `setoption name Hash value ${BATCH_ENGINE.hashMB}\n`,
+        `setoption name Hash value ${BATCH_ENGINE.hashMB}\n` +
+        `setoption name MultiPV value ${this.multiPV}\n`,
     );
     return (this.child = child);
   }
@@ -135,7 +153,7 @@ export class Evaluator {
           else finish(new Error('No engine result'));
         }
       });
-      child.stdin.write(`position fen ${fen}\ngo depth ${BATCH_ENGINE.depth}\n`);
+      child.stdin.write(`position fen ${fen}\ngo depth ${this.depth}\n`);
     });
   }
 

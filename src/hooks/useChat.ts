@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Annotation, PlayerColor, Snapshot, Totals } from '../../shared/protocol';
+import type { Annotation, GameContext, PlayerColor, Snapshot, Totals } from '../../shared/protocol';
 import { fetchLifetimeUsage, streamChat } from '../api';
 
 export type Message = {
@@ -21,6 +21,8 @@ type Turn = {
   label: string;
   snapshot: Snapshot;
   playerColor: PlayerColor;
+  /** The finished game the position belongs to, when reviewing one. */
+  game?: GameContext;
 };
 
 const reviewPrompt = (move: string) =>
@@ -80,6 +82,7 @@ export function useChat({
         ...turn.snapshot,
         message: turn.message,
         playerColor: turn.playerColor,
+        game: turn.game,
         conversationId: conversationId.current,
       };
       for await (const event of streamChat(request, controller.current.signal)) {
@@ -142,8 +145,14 @@ export function useChat({
     status,
     busy: status !== '',
     queued,
-    ask: (message: string, snapshot: Snapshot, playerColor: PlayerColor) =>
-      enqueue({ kind: 'question', message, label: message, snapshot, playerColor }),
+    /** Asks about `snapshot`; `label` is shown as the question when `message` is a longer brief. */
+    ask: (
+      message: string,
+      snapshot: Snapshot,
+      playerColor: PlayerColor,
+      game?: GameContext,
+      label = message,
+    ) => enqueue({ kind: 'question', message, label, snapshot, playerColor, game }),
     /** Queues an automatic review of the move that led to `snapshot`. */
     review: (snapshot: Snapshot, playerColor: PlayerColor) => {
       const move = snapshot.moves.at(-1);
