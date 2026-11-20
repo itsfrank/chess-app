@@ -285,7 +285,8 @@ Sonnet also grades by default (`--extractor` and `--judge` change that), and
 needs no backend. `npm run lab -- freeze` runs the engine once on every positional question and
 keeps the result, with the positional facts (`positionalFacts` in `server/facts.ts`: pawn
 structure, files, outposts, bishops, restricted pieces, king cover, pawn breaks) before the move,
-after it and at the end of the engine's line. Run again, it only recomputes the board facts and
+after it, at the end of the engine's line and after that line is continued by a second search.
+Run again, it only recomputes the board facts and
 any engine work it is missing, so cached answers stay valid; `--engine` reruns everything. A strategy in `evals/strategies.ts` then turns that frozen context into a single
 model request, so trying an idea costs one request per question and no engine time.
 `npm run lab -- compare <old> <new>` answers a dozen questions with each strategy (Claude Haiku
@@ -294,7 +295,11 @@ engine scores quoted, answers that lead with a score, reference squares mentione
 dispute the question's premise), and has a judge compare each pair of answers unlabelled in one
 request, reporting wins, losses and the chance the split is luck. `--all` uses all 31 questions,
 `run <strategy>` answers without judging, and `show <strategy> <case>` prints one answer beside
-its reference points. What wins in the lab should be confirmed with the full eval below, which
+its reference points. `score <a> <b> …` instead judges each answer alone, point by point, and
+stores the score, so a strategy is judged once and any two can be compared without asking again;
+`--samples N` answers each question N times, `--judge haiku` screens cheaply (it agreed with Sonnet
+on 88% of points), and `--holdout` scores the 19 questions outside the dozen. `agree` scores the
+same answers with both judges and reports how often they agree. What wins in the lab should be confirmed with the full eval below, which
 goes through the backend with real tool calls.
 
 To try a change to the companion end to end: restart the backend, run

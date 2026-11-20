@@ -68,10 +68,35 @@ settings, roughly in order of value. Move an item out of this list when it ships
      "why is X not best" barely moved under any strategy (Tsvetkov–Smyslov's queen trade stays at 0
      even with the facts showing the bad bishop and that neither king can advance: the answers still
      call the moves equal on the engine's score); Fischer–Petrosian went from 0 to 1 of 2 with
-     `consequences` and 2 of 2 with `coach`. Next: ship the positional facts and the line-end change
-     to the companion (as fields of `analyze_position`'s result) and confirm with `npm run eval`;
-     make the change less noisy (pair each feature before and after instead of listing changed
-     sentences); for "why not X", compare the two moves' line-end facts side by side.
+     `consequences` and 2 of 2 with `coach`.
+
+     A second round changed the loop first: `npm run lab -- score` judges each answer once, point
+     by point, and stores it, so a baseline is never judged again; `--samples N` asks each question
+     N times; `--holdout` is the 19 questions outside the dozen. Calibration on the dozen: two
+     samples of one strategy differ by 1–2 points of 36, so read differences of 3 or more; per-answer
+     scores are much stricter than the pairwise counts (`current` 2.5, `consequences` 9 of 36 by
+     Sonnet); Haiku as judge agrees with Sonnet on 126 of 144 points, is more lenient, reached the same
+     verdict (6 better, 0 worse) and costs about a fifteenth as much, so it screens and Sonnet confirms.
+     At list price a Haiku answer is $0.001–0.002, Sonnet judging $0.004 per answer, Haiku judging
+     $0.0003. Screened with two samples and the Haiku judge against `consequences` (12.5 of 36):
+
+     | Strategy   | Points of 36 | Better / worse | What it tried                                                                          |
+     | ---------- | ------------ | -------------- | -------------------------------------------------------------------------------------- |
+     | `compact`  | 9.0          | 1 / 6          | the same information as text instead of JSON (about 7% cheaper)                        |
+     | `paired`   | about 11     | 3 / 4          | changes as feature: before → after; for "why not X" both moves' line ends side by side |
+     | `lineonly` | 10.0         | 1 / 6          | only the line-end change, without the position's own facts                             |
+     | `farther`  | 9.0          | 1 / 6          | also the change after the line is continued to about 18 half-moves                     |
+
+     None beat `consequences`; with `threat` and `coach` the pattern is that more on top of it does
+     not help Haiku and may dilute it, and the format does not matter. On the 19 held-out questions,
+     scored per answer by Sonnet, `consequences` led `current` 16 to 12 of 50 but split 3 better, 3
+     worse, 13 level: three large wins (Karpov–Unzicker 0 → 3, Lasker–Capablanca 1 → 3,
+     Spassky–Fischer 0 → 2) where the line shows the transformation, and small losses. So the facts
+     help a lot on some questions and not on most. Next: ship the positional facts and the line-end
+     change (as fields of `analyze_position`'s result) behind a setting and confirm with
+     `npm run eval -- --quick --suites ideas`; grow `evals/ideas.json`, especially "why not X"
+     questions, which no strategy has moved; tag reference points by theme to see which kinds of
+     idea the facts reach.
 
    - The eval now defaults to Sonnet for answers and grading, with a `--quick` sample of 24
      questions, so a change can be tried for about 66 requests. Scores from it are not comparable

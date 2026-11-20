@@ -74,6 +74,145 @@ const IDEAS_GUIDE = [
   `A fixed-depth engine cannot see long-term factors such as a blockade, a bad bishop, a fortress or a slow manoeuvre. When scores are within a few tenths of a pawn, they do not decide between moves; the long-term factors do, so explain those instead of calling the moves equal. Do not frame the idea as a difference in score, do not open with a score, and quote at most one. The question tells you which move a strong player chose; explain why, rather than disputing it because the scores are close.`,
 ].join('\n\n');
 
+// ---------------------------------------------------------------------------
+// The same information as text rather than JSON: fewer tokens, and nothing to parse.
+
+type Evaluation = { type: 'cp' | 'mate'; value: number };
+type Step = {
+  move: string;
+  does: string;
+  check?: boolean;
+  attacks?: string[];
+  uncovers?: string[];
+  leavesLoose?: string[];
+};
+type Line = {
+  san: string;
+  evaluation: Evaluation;
+  continuation: string[];
+  steps?: Step[];
+  materialAfterSteps?: string;
+};
+type EngineLines = { depth: number; moves: object[] };
+
+const score = ({ type, value }: Evaluation) =>
+  type === 'mate'
+    ? `${value > 0 ? 'White' : 'Black'} mates in ${Math.abs(value)}`
+    : `${value >= 0 ? '+' : '−'}${(Math.abs(value) / 100).toFixed(2)}`;
+const step = (s: Step) =>
+  [
+    `${s.move} (${s.does}${s.check ? ', check' : ''})`,
+    s.attacks?.length ? `attacks ${s.attacks.join(', ')}` : '',
+    s.uncovers?.length ? `uncovers ${s.uncovers.join(', ')}` : '',
+    s.leavesLoose?.length ? `leaves loose ${s.leavesLoose.join(', ')}` : '',
+  ]
+    .filter(Boolean)
+    .join(', ');
+const engineText = (title: string, analysis: EngineLines) =>
+  `${title} (depth ${analysis.depth}; scores from White's side):\n` +
+  (analysis.moves as Line[])
+    .map(
+      line =>
+        `- ${line.san} ${score(line.evaluation)}: ${line.continuation.join(' ')}\n` +
+        (line.steps?.length ? `  ${line.steps.map(step).join('; ')}. ` : '  ') +
+        (line.materialAfterSteps ?? ''),
+    )
+    .join('\n');
+
+/** The briefing of `briefing`, written as text. */
+function compactBriefing({ test, fen, position, analysis, afterFocus, afterKey }: Context) {
+  const facts = position as {
+    toMove: string;
+    white: string;
+    black: string;
+    material: string;
+    attacked?: string[];
+    pinned?: string[];
+    check?: boolean;
+  };
+  const after = (san: string, { move, analysis: lines }: typeof afterFocus) =>
+    engineText(`Engine analysis after ${san} (${step(move as Step)})`, lines as EngineLines);
+  return [
+    `Board: ${fen}; moves so far ${test.moves.join(' ')}; the user plays ${test.playerColor}.`,
+    `Board facts: ${facts.toMove} to move. White: ${facts.white}. Black: ${facts.black}. ${facts.material}.` +
+      (facts.check ? ' The side to move is in check.' : '') +
+      (facts.attacked?.length ? `\nAttacked: ${facts.attacked.join('; ')}.` : '') +
+      (facts.pinned?.length ? `\nPinned: ${facts.pinned.join(', ')}.` : ''),
+    engineText('Engine analysis of this position', analysis as EngineLines),
+    after(test.focus!, afterFocus),
+    afterKey ? after(test.keyMove!, afterKey) : '',
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+/** A positional fact's feature, with squares and counts taken out, so it can be matched. */
+const feature = (fact: string) => {
+  const head = fact.includes(':') ? fact.slice(0, fact.indexOf(':')) : fact;
+  return head
+    .replace(/\b[a-h][1-8]\b/g, '')
+    .replace(/\d+/g, 'N')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+/** Each feature that differs between two positions, as "feature: before → after". */
+function pairedChange(before: string[], after: string[]): string {
+  const group = (facts: string[]) => {
+    const groups = new Map<string, string[]>();
+    for (const fact of facts) {
+      const key = feature(fact);
+      const head = fact.includes(':') ? fact.slice(0, fact.indexOf(':')) : fact;
+      // The value is what follows the feature's name, or the whole fact when the name had squares.
+      const value =
+        head.replace(/\s+/g, ' ').trim() === key
+          ? fact.includes(':')
+            ? fact.slice(fact.indexOf(':') + 1).trim()
+            : 'yes'
+          : fact;
+      groups.set(key, [...(groups.get(key) ?? []), value]);
+    }
+    return groups;
+  };
+  const [old, now] = [group(before), group(after)];
+  const lines = [...new Set([...old.keys(), ...now.keys()])].flatMap(key => {
+    const [was, is] = [old.get(key)?.join('; ') ?? 'none', now.get(key)?.join('; ') ?? 'none'];
+    return was === is ? [] : [`- ${key}: ${was} → ${is}`];
+  });
+  return lines.join('\n') || '- (no change)';
+}
+
+/** Positional facts now, and feature by feature where the engine's lines lead. */
+function pairedBriefing({ test, positional }: Context) {
+  const { afterFocus, afterKey } = positional;
+  return [
+    `Positional facts of this position:\n${bullets(positional.before)}`,
+    `How they change by the end of the engine's best line after ${test.focus} (${afterFocus.line.join(' ')}):\n${pairedChange(positional.before, afterFocus.afterLine)}`,
+    afterKey
+      ? `How they change by the end of the engine's best line after ${test.keyMove} (${afterKey.line.join(' ')}):\n${pairedChange(positional.before, afterKey.afterLine)}`
+      : '',
+    afterKey
+      ? `Side by side, the end of the line after ${test.keyMove} → the end of the line after ${test.focus}:\n${pairedChange(afterKey.afterLine, afterFocus.afterLine)}`
+      : '',
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+/** How the positional facts stand once the engine's line is continued about ten more moves. */
+const farBriefing = ({ test, positional }: Context) =>
+  [
+    [test.focus, positional.afterFocus] as const,
+    ...(positional.afterKey ? [[test.keyMove, positional.afterKey] as const] : []),
+  ]
+    .filter(([, outlook]) => outlook.afterFar)
+    .map(
+      ([move, outlook]) =>
+        `Positional change further on, after ${move} ${outlook.line.join(' ')} ${outlook.farLine!.join(' ')} (the engine's line continued):\n${change(positional.before, outlook.afterFar!)}`,
+    )
+    .join('\n\n');
+
+const LINE_FACTS = `${POSITIONAL_FACTS} The change by the end of an engine line shows what kind of position the move leads to; use it to say what the move is aiming for.`;
+
 /** What the opponent would do if the side to move passed, and their best reply after the move. */
 function threatBriefing({ test, threat, afterFocus }: Context) {
   if (!threat) return '';
@@ -151,5 +290,40 @@ export const STRATEGIES: Record<string, Strategy> = {
     system: `${SYSTEM_PROMPT}\n\n${POSITIONAL_FACTS} The change by the end of an engine line shows what kind of position the move leads to; use it to say what the move is aiming for.\n\n${NO_TOOLS}`,
     message: context =>
       `${briefing(context)}\n\n${positionalBriefing(context)}\n\n${lineBriefing(context)}\n\n${threatBriefing(context)}\n\nUser: ${context.test.message}`,
+  },
+
+  /** `consequences` with the engine analysis and board facts written as text instead of JSON. */
+  compact: {
+    about: 'consequences, with engine analysis and board facts as short text instead of JSON',
+    system: `${SYSTEM_PROMPT}\n\n${LINE_FACTS}\n\n${NO_TOOLS}`,
+    message: context =>
+      `${compactBriefing(context)}\n\n${positionalBriefing(context)}\n\n${lineBriefing(context)}\n\nUser: ${context.test.message}`,
+  },
+
+  /** `compact` with changes shown feature by feature, and the two moves' outcomes side by side. */
+  paired: {
+    about:
+      'compact, changes as feature: before → after, and for "why not X" both moves’ line ends side by side',
+    system: `${SYSTEM_PROMPT}\n\n${LINE_FACTS}\n\n${NO_TOOLS}`,
+    message: context =>
+      `${compactBriefing(context)}\n\n${pairedBriefing(context)}\n\nUser: ${context.test.message}`,
+  },
+
+  /** `compact` without the facts of the position itself or right after the move: only where it leads. */
+  lineonly: {
+    about:
+      'compact, without positional facts of the position itself; only their change by line end',
+    system: `${SYSTEM_PROMPT}\n\n${LINE_FACTS}\n\n${NO_TOOLS}`,
+    message: context =>
+      `${compactBriefing(context)}\n\n${lineBriefing(context)}\n\nUser: ${context.test.message}`,
+  },
+
+  /** `consequences` plus the positional change once the engine's line is continued further. */
+  farther: {
+    about:
+      'consequences + positional change after the engine line continued to about 18 half-moves',
+    system: `${SYSTEM_PROMPT}\n\n${LINE_FACTS} The change further on shows where a slow plan leads.\n\n${NO_TOOLS}`,
+    message: context =>
+      `${briefing(context)}\n\n${positionalBriefing(context)}\n\n${lineBriefing(context)}\n\n${farBriefing(context)}\n\nUser: ${context.test.message}`,
   },
 };
