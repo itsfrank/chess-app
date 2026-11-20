@@ -15,6 +15,7 @@ import { positionFacts } from '../server/facts.ts';
 
 export const SONNET = 'claude-bridge/claude-sonnet-5-5';
 export const HAIKU = 'claude-bridge/claude-haiku-5-5';
+export const OPUS = 'claude-bridge/claude-opus-5-5';
 export const SUITES = ['mine', 'tactics', 'ideas'] as const;
 export type Suite = (typeof SUITES)[number];
 

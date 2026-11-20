@@ -124,6 +124,13 @@ settings, roughly in order of value. Move an item out of this list when it ships
      and `farther`, about $1.60 at list price) before it is shipped. A Sonnet answer costs 12–15
      times a Haiku one.
 
+     Opus answering (`--model opus`, same judge, five strategies) did no better: `current` 12,
+     `coach` 16 (4 better, 1 worse), `farther` 15, `consequences` 13, `lineonly` 12, at
+     $0.042–0.064 per answer, about twice Sonnet. `coach` leads again, so the guide with the facts
+     is the consistent winner for the larger models. The same three questions stay at 0 under every
+     model and strategy, which points at their reference points or the judge rather than the
+     model; read those answers before adding strategies.
+
    - The eval now defaults to Sonnet for answers and grading, with a `--quick` sample of 24
      questions, so a change can be tried for about 66 requests. Scores from it are not comparable
      with the tables above: the judge differs (Sonnet, not Opus) and the wording of the idea

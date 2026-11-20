@@ -16,7 +16,7 @@
  *
  * A dozen questions are used unless `--all` asks for all 31 or `--holdout` for the 19 not in
  * the dozen (kept for confirming a strategy that won on the dozen). `--model` is
- * `haiku` (the default: cheapest, and with the most to gain) or `sonnet`;
+ * `haiku` (the default: cheapest, and with the most to gain), `sonnet` or `opus`;
  * `--judge` is `sonnet` by default. Needs no backend, only Stockfish and the
  * Claude bridge. What holds up here should then be confirmed with `npm run eval`.
  */
@@ -29,7 +29,17 @@ import type { Analysis } from '../shared/protocol.ts';
 import { DATA_DIR } from '../server/config.ts';
 import { describeLine, describePosition, positionalFacts } from '../server/facts.ts';
 import { analyze } from '../server/stockfish.ts';
-import { complete, fenAfter, HAIKU, ideaCases, pool, SONNET, spread, type Case } from './lib.ts';
+import {
+  complete,
+  fenAfter,
+  HAIKU,
+  ideaCases,
+  OPUS,
+  pool,
+  SONNET,
+  spread,
+  type Case,
+} from './lib.ts';
 import { measure, plain, summarizeMetrics } from './metrics.ts';
 import { STRATEGIES } from './strategies.ts';
 
@@ -41,7 +51,7 @@ const SCORES = join(DIR, 'scores.json');
 const SAMPLE = 12;
 const BATCH = 12;
 const ENGINE_MS = 2500;
-const MODELS: Record<string, string> = { haiku: HAIKU, sonnet: SONNET };
+const MODELS: Record<string, string> = { haiku: HAIKU, sonnet: SONNET, opus: OPUS };
 
 /** The engine's lines with what each move does, as the companion's tool would return them. */
 type Lines = Omit<Analysis, 'moves'> & { moves: object[] };
