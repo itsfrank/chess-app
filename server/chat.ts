@@ -44,6 +44,17 @@ type Conversation = ToolContext & {
   touched: number;
 };
 
+/** Replies shorter than this, in words, after arrows were drawn are checked for a missing answer. */
+export const SHORT_REPLY_WORDS = 50;
+
+/** Whether a turn's visible reply may be only a caption for its arrows. */
+export const needsFullAnswer = (reply: string, drewArrows: boolean) =>
+  drewArrows && reply.trim().split(/\s+/).filter(Boolean).length < SHORT_REPLY_WORDS;
+
+/** Asks for the answer when the visible reply may be only a caption; "OK" means it is complete. */
+export const fullAnswerRequest = (reply: string) =>
+  `The user sees only your reply text, not your reasoning or tool calls. So far they have seen only this:\n\n${reply.trim() || '(nothing)'}\n\nIf that already answers their question in full, reply with exactly: OK. Otherwise write the full answer now, as text they will read right after it, without repeating it. Do not call any tools.`;
+
 /** Gives an agent `systemPrompt` and nothing else: no extensions, skills or context files. */
 export const promptOnly = (systemPrompt: string): ResourceLoader => ({
   getExtensions: () => ({ extensions: [], errors: [], runtime: createExtensionRuntime() }),
@@ -334,14 +345,22 @@ export class ChatService {
     const { recorder } = conversation;
     let text = '';
     let modelError: string | undefined;
+    /** Whether arrows were drawn this turn. */
+    let drew = false;
+    /** Text held back from the user while it is decided whether to show it. */
+    let held: string | null = null;
 
     const unsubscribe = session.subscribe(event => {
       // Text deltas are recorded as client events; record everything else the agent does.
       if (event.type !== 'message_update') recorder.record('agent', event);
       if (event.type === 'message_update' && event.assistantMessageEvent.type === 'text_delta') {
-        text += event.assistantMessageEvent.delta;
-        conversation.emit({ type: 'text', delta: event.assistantMessageEvent.delta });
+        if (held !== null) held += event.assistantMessageEvent.delta;
+        else {
+          text += event.assistantMessageEvent.delta;
+          conversation.emit({ type: 'text', delta: event.assistantMessageEvent.delta });
+        }
       } else if (event.type === 'tool_execution_start') {
+        if (event.toolName === 'set_arrows') drew = true;
         conversation.emit({ type: 'status', text: toolStatus[event.toolName] ?? 'Working…' });
       } else if (event.type === 'message_end' && event.message.role === 'assistant') {
         const { usage, stopReason, errorMessage } = event.message;
@@ -379,6 +398,20 @@ export class ChatService {
         `Board snapshot: ${JSON.stringify({ fen, moves, playerColor })}\n\n` +
           `Board facts: ${JSON.stringify(facts)}${review}\n\nUser: ${message}`,
       );
+      // The model sometimes explains in its reasoning, draws arrows and then only captions them.
+      if (needsFullAnswer(text, drew) && !cancelled()) {
+        conversation.emit({ type: 'status', text: 'Finishing the explanation…' });
+        held = '';
+        await prompt(fullAnswerRequest(text));
+        const extra = held.trim();
+        held = null;
+        recorder.record('full_answer_request', { shown: text, extra });
+        if (extra && !/^ok\.?$/i.test(extra)) {
+          const delta = (text.trim() ? '\n\n' : '') + extra;
+          text += delta;
+          conversation.emit({ type: 'text', delta });
+        }
+      }
       const remaining = await repairAnnotations({
         errors: () => annotationErrors(fen, text, conversation.arrows),
         cancelled,

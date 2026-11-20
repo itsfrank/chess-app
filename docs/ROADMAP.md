@@ -131,6 +131,29 @@ settings, roughly in order of value. Move an item out of this list when it ships
      model and strategy, which points at their reference points or the judge rather than the
      model; read those answers before adding strategies.
 
+     Coaching on club players' games is now measured with two suites (`--suites tutor,coach`):
+     `tutor`, 37 questions on Lichess rapid games between 1300–1800 players with reference points
+     worked out by the engine (what the move allowed or missed, a better move, a habit; for quiet
+     positions a plan), and `coach`, 59 questions on readers' games annotated by IM Silman with his
+     points as the reference (built locally from copyrighted articles, never committed). The first
+     run with Sonnet found that a third of the answers were only captions for the arrows: the model
+     explained in its reasoning, drew arrows, and wrote "I've drawn the arrows…", so the user never
+     saw the explanation. Fixed, in order, through the full eval (one sample of 96 answers each):
+
+     | Change                                                                     | Caption only | `tutor` | `coach` | False claims | $ per answer |
+     | -------------------------------------------------------------------------- | ------------ | ------- | ------- | ------------ | ------------ |
+     | shipped                                                                    | 33           | 63%     | 28%     | 11           | 0.021        |
+     | prompt: the user sees only the reply                                       | 28           | 64%     | 33%     | 32           | 0.025        |
+     | `set_arrows` result says to write the full answer now                      | 14           | 70%     | 43%     | 16           | 0.016        |
+     | reasoning effort low instead of medium (not kept)                          | 14           | 66%     | 38%     | 23           | 0.020        |
+     | a reply under 50 words after arrows gets one hidden "answer in full?" turn | 1            | 85%     | 44%     | 19           | 0.018        |
+
+     The rest of the gap on `coach` is substance: on Silman's games the companion defers to the
+     engine where he judges positionally (it called 15…Nd5 "a fine move, not a mistake; the engine
+     review doesn't flag it" where he calls it a soft move and wants 15…a5!), and on plans it rarely
+     ties the plan to the position's features. Many false claims are loose coaching language read
+     literally ("eyes the knight", "pins down"), some are real.
+
    - The eval now defaults to Sonnet for answers and grading, with a `--quick` sample of 24
      questions, so a change can be tried for about 66 requests. Scores from it are not comparable
      with the tables above: the judge differs (Sonnet, not Opus) and the wording of the idea

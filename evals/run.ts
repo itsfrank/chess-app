@@ -76,6 +76,8 @@ const DEFAULT_MODELS = [SONNET];
 /** `--quick` asks an evenly spread sample of each suite instead of every question. */
 const QUICK = { mine: 6, tactics: 6, ideas: 12, tutor: 12, coach: 12 };
 const flag = (name: string) => args.includes(`--${name}`);
+/** The companion's reasoning effort during the run. */
+const EFFORT = (option('effort') ?? 'medium') as Settings['effort'];
 /** Writes down the claims in an answer; whether they are true is then decided by the rules. */
 const EXTRACTOR = option('extractor') ?? SONNET;
 /** Says which reference points an answer conveys. */
@@ -387,7 +389,7 @@ async function run(label: string, models: string[], suites: Suite[], games: numb
   try {
     for (const model of models) {
       // A conversation keeps the model it started with, so one model is asked at a time.
-      await use({ model, effort: 'medium' });
+      await use({ model, effort: EFFORT });
       const answers = await pool(cases, 4, ask);
       console.log(`${model}: answered`);
       // Kept before grading, so that answers survive a grading run that is cut short.

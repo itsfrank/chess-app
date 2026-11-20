@@ -125,7 +125,11 @@ export function createTools(context: ToolContext) {
           color: annotationPalette[arrow.color],
         }));
         context.emit({ type: 'arrows', arrows: context.arrows });
-        return textResult(context.arrows);
+        // Without this, the model often treats drawing as the answer and only captions the arrows.
+        return textResult({
+          arrows: context.arrows,
+          next: 'Arrows drawn. Now write your full answer to the question as your reply; the user has not seen your reasoning or tool calls, only the reply.',
+        });
       },
     }),
   ];

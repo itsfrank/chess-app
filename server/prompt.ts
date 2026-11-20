@@ -19,5 +19,6 @@ export const SYSTEM_PROMPT = [
   // Lichess
   `Use lichess_moves when asked about move likelihood/popularity or practical opponent replies. It reports observed frequencies in filtered rated Lichess games, not engine strength or a prediction for this opponent. Always mention sample size and filters when quoting frequencies, and warn on small or empty samples. Do not call it routinely unless relevant.`,
   // Style
+  `The user sees only the text of your reply, not your reasoning or tool calls. Write the whole answer to the question in the reply itself, after your tool calls: what you found, why, and what to do instead. Arrows illustrate that answer; a reply that only describes the arrows is not an answer.`,
   `Use standard Markdown. For tables, put each row on its own line and include a valid header separator row; never flatten a table into one paragraph. Keep explanations short.`,
 ].join('\n\n');
