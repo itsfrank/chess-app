@@ -98,6 +98,32 @@ settings, roughly in order of value. Move an item out of this list when it ships
      questions, which no strategy has moved; tag reference points by theme to see which kinds of
      idea the facts reach.
 
+     The same ten strategies with Sonnet answering (one sample, Sonnet judge, the dozen). Haiku's
+     answers under the same judge scored 2.5 (`current`) and 9 (`consequences`) of 36:
+
+     | Strategy       | Points of 36 | Better / worse vs `current` | $ per answer |
+     | -------------- | ------------ | --------------------------- | ------------ |
+     | `current`      | 12           |                             | 0.024        |
+     | `ideas`        | 11           | 1 / 2                       | 0.028        |
+     | `positional`   | 11           | 2 / 3                       | 0.028        |
+     | `consequences` | 13           | 2 / 1                       | 0.031        |
+     | `coach`        | 18           | 5 / 0 (p = 0.06)            | 0.031        |
+     | `threat`       | 13           | 3 / 2                       | 0.030        |
+     | `compact`      | 12           | 1 / 1                       | 0.026        |
+     | `paired`       | 13           | 4 / 2                       | 0.026        |
+     | `lineonly`     | 15           | 4 / 2                       | 0.023        |
+     | `farther`      | 15           | 4 / 1                       | 0.034        |
+
+     The pattern reverses from Haiku's. Sonnet with the shipped prompt already does better than
+     Haiku with any strategy, and the facts alone add little to it (`consequences` 13); what helps
+     Sonnet is the instructions, `coach` (the facts and line-end change plus the two-part
+     "what changes / the idea" guide and the list of themes), the only strategy with no question
+     worse. Fischer–Petrosian goes to 2 of 2 under `coach`, as with Haiku; Tsvetkov–Smyslov,
+     Johner–Nimzowitsch and Carlsen–Aronian stay at 0 under every strategy. One sample: differences
+     under about 3 points are noise, so `coach` needs a second sample (with `current`, `lineonly`
+     and `farther`, about $1.60 at list price) before it is shipped. A Sonnet answer costs 12–15
+     times a Haiku one.
+
    - The eval now defaults to Sonnet for answers and grading, with a `--quick` sample of 24
      questions, so a change can be tried for about 66 requests. Scores from it are not comparable
      with the tables above: the judge differs (Sonnet, not Opus) and the wording of the idea
