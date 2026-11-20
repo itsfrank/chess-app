@@ -55,7 +55,9 @@ environment file's expanded values.
   applies to conversations started afterwards. If the `pi-claude-bridge` extension is installed
   in Pi and Claude Code is logged in, Claude models are listed too, marked "(Claude Code)"; they
   run on your Claude subscription, with Claude Code's own tools switched off, and their cost is
-  shown as an estimate at list price.
+  shown as an estimate at list price. Claude Code writes its prompt cache for an hour by default,
+  at twice the input price; the app asks for the five-minute cache instead, which is enough for the
+  calls of one turn and costs 1.25 times. Set `CLAUDE_CODE_PROMPT_CACHE_TTL=1h` to keep the hour.
 - **Stockfish**: the depth of the game review pass (default 16), the depth for repertoire positions
   (default 18), and how many seconds the engine thinks about the position on the board for the
   analysis panel and the companion's checks (default 1.5). A stored result is used as long as it

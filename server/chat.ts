@@ -21,6 +21,7 @@ import {
   CLAIM_CHECK,
   CLAUDE_BRIDGE,
   ENGINE,
+  HOUR_CACHE,
   MAX_CONVERSATIONS,
   MODEL_PROVIDER,
   SESSIONS_DIR,
@@ -120,7 +121,9 @@ export async function createBridgeSession(
 
 /**
  * What a turn through the bridge would cost at the model's list price. The
- * bridge reports none, because the turn runs on a Claude subscription.
+ * bridge reports none, because the turn runs on a Claude subscription. The
+ * catalogue's cache-write price is the five-minute cache's; the hour-long one
+ * costs twice the input price.
  */
 export function bridgedCost(
   modelRuntime: ModelRuntime,
@@ -134,7 +137,7 @@ export function bridgedCost(
     (usage.input * price.input +
       usage.output * price.output +
       usage.cacheRead * price.cacheRead +
-      usage.cacheWrite * price.cacheWrite) /
+      usage.cacheWrite * (HOUR_CACHE ? 2 * price.input : price.cacheWrite)) /
     1_000_000
   );
 }

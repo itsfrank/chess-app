@@ -167,15 +167,58 @@ settings, roughly in order of value. Move an item out of this list when it ships
      | positional facts and their change by each line's end in `analyze_position`, plans in the prompt | 87%     | 52%     | 26           | 0.031        | 12      |
      | reply's board claims checked by the rules, false ones sent back to be rewritten (Haiku)         | 88%     | 52%     | 8            | 0.025¹       | 37      |
      | the same with Sonnet, a compact one-line format and paragraphs checked in parallel              | 87%     | 49%     | 4            | 0.057        | 23      |
+     | reply in three parts (what happened, why it matters, the lesson)                                | 91%     | 54%     | 4            | 0.068        | 25      |
+     | claims checked while the reply arrives; plan questions name the move played                     | 86%     | 54%     | 6            | 0.059        | 24      |
+     | longer engine search, 3 s (not kept)                                                            | 88%     | 48%     | 8            | 0.054        | 25      |
+     | a hidden "reread it as a master coach" turn after the check (not kept)                          | 90%     | 44%     | 11           | 0.062        | 33      |
 
-     ¹ Without the check's own cost, which the last row includes. Haiku was the slow one: about 3,300
-     hidden reasoning tokens and 16 seconds for a paragraph that Sonnet did in 8.
+     ¹ Without the check's own cost, which the later rows include. Haiku was the slow one: about
+     3,300 hidden reasoning tokens and 16 seconds for a paragraph that Sonnet did in 8.
 
-   - The eval now defaults to Sonnet for answers and grading, with a `--quick` sample of 24
-     questions, so a change can be tried for about 66 requests. Scores from it are not comparable
-     with the tables above: the judge differs (Sonnet, not Opus) and the wording of the idea
-     questions changed ("A strong player chose X" instead of "White played X here", which had
-     confused Haiku).
+     How far to trust these rows: one `coach` question's score moves by about ±30 points between
+     two runs of the same setup, because whether an answer happens to make Silman's particular
+     point varies from sample to sample (the judge, regrading the same answers, agrees with itself
+     on 95% of points). The whole suite is therefore uncertain by about ±5 points, so most of the
+     3–6 point steps above are within noise; only the caption fixes and the claim check are
+     clearly real.
+
+- Ideas are now screened before a full run by replaying only the final writing step: the
+  recorded question and tool results of 40 answers (30 `coach`, 10 `tutor` plan questions),
+  with the idea's prompt or extra information, against two control replays. With the tool
+  results fixed, a replay costs about $0.024 including grading and the 40 run in two to three
+  minutes, about a tenth of a full run, and `tutor` noise halves (`coach` noise does not,
+  being in the writing). The scripts are local (`.data/lab/`), since they read the `coach`
+  answers. Ten ideas screened so far, all against the shipped setup:
+
+  | Idea                                                                 | `coach`   | `tutor` plans | False claims¹ |
+  | -------------------------------------------------------------------- | --------- | ------------- | ------------- |
+  | no "keep explanations short" (28% more words)                        | +7.1 ±3.7 | +10 ±4.9      | 10            |
+  | what the opponent would play if the player passed, with its line     | −3.7 ±4.9 | +15 ±4.9      | 9             |
+  | the top three moves and the move played, with what each line changes | −3.5 ±4.0 | +7.5 ±4.6     | 9             |
+  | a list of positional principles and club players' thinking errors    | +3.2 ±4.9 | +2.5 ±3.6     | 9             |
+  | a first call lists a master's points, a second writes from them      | +4.9 ±5.0 | −7.5 ±6.0     | 20            |
+  | Opus writes the answer                                               | +2.4 ±5.1 | −5.0 ±3.3     | 5             |
+  | best of two answers, picked by a judge without the reference points  | −2.6 ±2.4 | +2.5 ±2.5     | 9             |
+  | name the deciding imbalances first                                   | −2.9 ±6.4 | +5.0 ±5.0     | 14            |
+  | start from what the student was probably thinking                    | −2.1 ±4.9 | +2.5 ±6.4     | 15            |
+  | `diagnose_move` on the move played when the model did not call it    | −3.7 ±4.0 | +2.5 ±3.6     | 7             |
+
+  ¹ In the 40 replayed answers, unchecked; the controls had 7 and 9. Telling the model how to
+  think added false claims without adding coverage; new, checked engine information helped
+  where it was what was missing (the opponent's free move on plan questions, though the `tutor`
+  plan points were themselves built from it); letting the answer run longer was the only change
+  that moved `coach`. Next: a full run of the first two together.
+
+- Bridged calls now ask Claude Code for the five-minute prompt cache instead of the hour-long
+  one it uses on a subscription (twice the input price, and never read again by one-off
+  grading calls), and estimates price cache writes accordingly. With claim checks left out of
+  screens unless asked for, a screened answer went from about $0.085 to $0.024.
+
+- The eval now defaults to Sonnet for answers and grading, with a `--quick` sample of 24
+  questions, so a change can be tried for about 66 requests. Scores from it are not comparable
+  with the tables above: the judge differs (Sonnet, not Opus) and the wording of the idea
+  questions changed ("A strong player chose X" instead of "White played X here", which had
+  confused Haiku).
 
 2. **Make game review faster.** A 47-move game took 72 seconds the first time and the accuracy
    table stays empty until the end.

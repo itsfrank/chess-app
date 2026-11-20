@@ -34,6 +34,16 @@ export const CLAUDE_BRIDGE = {
   pricedAs: 'anthropic',
 };
 
+/**
+ * Claude Code on a subscription writes its prompt cache for an hour unless told otherwise, at
+ * twice the input price where the five-minute cache costs 1.25 times. The calls of one turn come
+ * seconds apart and grading calls are never repeated, so the hour is paid for and not used:
+ * default to five minutes. Set CLAUDE_CODE_PROMPT_CACHE_TTL=1h to keep the hour.
+ */
+process.env.CLAUDE_CODE_PROMPT_CACHE_TTL ??= '5m';
+/** Whether bridged turns write the hour-long cache, which `bridgedCost` prices differently. */
+export const HOUR_CACHE = process.env.CLAUDE_CODE_PROMPT_CACHE_TTL === '1h';
+
 /** The provider and model id of a model setting; a bare id belongs to the default provider. */
 export function splitModel(model: string): { provider: string; id: string } {
   const slash = model.indexOf('/');
