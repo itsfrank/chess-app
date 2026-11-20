@@ -16,7 +16,7 @@ import {
 import type { ChatRequest, Effort, ServerEvent, Totals } from '../shared/protocol.ts';
 import { numberedMove } from '../shared/quality.ts';
 import { annotationErrors, repairAnnotations } from './annotation-feedback.ts';
-import { claimFeedback, falseClaims } from './claim-check.ts';
+import { ClaimCheck, claimFeedback } from './claim-check.ts';
 import {
   CLAIM_CHECK,
   CLAUDE_BRIDGE,
@@ -352,6 +352,8 @@ export class ChatService {
     let drew = false;
     /** Text held back from the user while it is decided whether to show it. */
     let held: string | null = null;
+    /** Reads the reply's board claims while it is written, when claims are checked. */
+    let check: ClaimCheck | undefined;
 
     const unsubscribe = session.subscribe(event => {
       // Text deltas are recorded as client events; record everything else the agent does.
@@ -361,6 +363,7 @@ export class ChatService {
         else {
           text += event.assistantMessageEvent.delta;
           conversation.emit({ type: 'text', delta: event.assistantMessageEvent.delta });
+          check?.update(text);
         }
       } else if (event.type === 'tool_execution_start') {
         if (event.toolName === 'set_arrows') drew = true;
@@ -397,6 +400,18 @@ export class ChatService {
           lastMove: describeLine(conversation.previousFen, moves.slice(-1)).steps[0],
         }),
       };
+      if (CLAIM_CHECK) {
+        check = new ClaimCheck((system, question) => this.ask(conversation, system, question), {
+          fen,
+          ...(conversation.previousFen && {
+            before: {
+              fen: conversation.previousFen,
+              move: numberedMove(moves.length - 1, moves[moves.length - 1]),
+            },
+          }),
+          continuation: game?.moves.slice(moves.length),
+        });
+      }
       await prompt(
         `Board snapshot: ${JSON.stringify({ fen, moves, playerColor })}\n\n` +
           `Board facts: ${JSON.stringify(facts)}${review}\n\nUser: ${message}`,
@@ -416,22 +431,10 @@ export class ChatService {
         }
       }
       // Claims about the board are checked by the rules, and a reply with false ones is rewritten.
-      if (CLAIM_CHECK && text.trim() && !cancelled()) {
+      if (check && text.trim() && !cancelled()) {
         conversation.emit({ type: 'status', text: 'Checking the explanation against the board…' });
-        const wrong = await falseClaims(
-          (system, question) => this.ask(conversation, system, question),
-          text,
-          {
-            fen,
-            ...(conversation.previousFen && {
-              before: {
-                fen: conversation.previousFen,
-                move: numberedMove(moves.length - 1, moves[moves.length - 1]),
-              },
-            }),
-            continuation: game?.moves.slice(moves.length),
-          },
-        ).catch(() => []);
+        const wrong = await check.finish(text).catch(() => []);
+        check = undefined;
         recorder.record('claim_check', { false: wrong });
         if (wrong.length && !cancelled()) {
           conversation.emit({ type: 'replace_text', text: '' });

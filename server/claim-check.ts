@@ -82,37 +82,77 @@ export function parts(reply: string, size = 700): string[] {
   return out.filter(part => part.trim());
 }
 
-/** The claims in `reply` that the board shows to be false. */
-export async function falseClaims(
-  ask: Ask,
-  reply: string,
-  position: {
-    fen: string;
-    /** The position before the snapshot's last move, and that move numbered ("12… Nxe5"). */
-    before?: { fen: string; move: string };
-    /** The game's moves after the snapshot, when a finished game is under review. */
-    continuation?: string[];
-  },
-): Promise<Claim[]> {
-  const { fen, before, continuation } = position;
-  const context = [
-    describe('snapshot', fen),
-    before
-      ? `${describe('before', before.fen)}\n  then ${before.move} was played, giving the snapshot`
-      : '',
-    continuation?.length
-      ? `The game continued from the snapshot: ${continuation.slice(0, 12).join(' ')}`
-      : '',
-  ]
-    .filter(Boolean)
-    .join('\n\n');
-  const replies = await Promise.all(
-    parts(reply).map(part =>
-      ask(COMPACT_EXTRACTOR_PROMPT, `${context}\n\nAnswer to list claims from:\n${part}`),
-    ),
-  );
-  const claims = replies.flatMap(parseCompactClaims);
-  return claims.filter(claim => verify(claim, fen, before?.fen) === 'false');
+/** The position a reply is about, as the claim check needs it. */
+export type Position = {
+  fen: string;
+  /** The position before the snapshot's last move, and that move numbered ("12… Nxe5"). */
+  before?: { fen: string; move: string };
+  /** The game's moves after the snapshot, when a finished game is under review. */
+  continuation?: string[];
+};
+
+/**
+ * Checks a reply while it is being written: each run of whole paragraphs of about `size`
+ * characters is sent off as soon as it is complete, so by the end of the reply only its last
+ * part is still being read.
+ */
+export class ClaimCheck {
+  private readonly context: string;
+  private readonly pending: Promise<Claim[]>[] = [];
+  /** How much of the reply has been sent off. */
+  private sent = 0;
+
+  constructor(
+    private readonly ask: Ask,
+    private readonly position: Position,
+    private readonly size = 700,
+  ) {
+    const { fen, before, continuation } = position;
+    this.context = [
+      describe('snapshot', fen),
+      before
+        ? `${describe('before', before.fen)}\n  then ${before.move} was played, giving the snapshot`
+        : '',
+      continuation?.length
+        ? `The game continued from the snapshot: ${continuation.slice(0, 12).join(' ')}`
+        : '',
+    ]
+      .filter(Boolean)
+      .join('\n\n');
+  }
+
+  /** Sends off the reply's complete paragraphs not yet sent, once there are enough of them. */
+  update(reply: string) {
+    const end = reply.lastIndexOf('\n\n');
+    if (end > this.sent && end - this.sent >= this.size)
+      this.send(reply.slice(this.sent, end), end);
+  }
+
+  /** The false claims in `reply`, once the rest of it has been read. */
+  async finish(reply: string): Promise<Claim[]> {
+    if (reply.length > this.sent) this.send(reply.slice(this.sent), reply.length);
+    const claims = (await Promise.all(this.pending)).flat();
+    const { fen, before } = this.position;
+    return claims.filter(claim => verify(claim, fen, before?.fen) === 'false');
+  }
+
+  private send(part: string, end: number) {
+    this.sent = end;
+    if (!part.trim()) return;
+    this.pending.push(
+      this.ask(COMPACT_EXTRACTOR_PROMPT, `${this.context}\n\nAnswer to list claims from:\n${part}`)
+        .then(parseCompactClaims)
+        .catch(() => []),
+    );
+  }
+}
+
+/** The claims in `reply` that the board shows to be false, read in parallel parts. */
+export async function falseClaims(ask: Ask, reply: string, position: Position): Promise<Claim[]> {
+  const check = new ClaimCheck(ask, position);
+  for (let at = reply.indexOf('\n\n'); at >= 0; at = reply.indexOf('\n\n', at + 2))
+    check.update(reply.slice(0, at + 2));
+  return check.finish(reply);
 }
 
 /** What the companion is told when its reply says something the board contradicts. */

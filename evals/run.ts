@@ -84,6 +84,10 @@ const QUICK = { mine: 6, tactics: 6, ideas: 12, tutor: 12, coach: 12 };
 const flag = (name: string) => args.includes(`--${name}`);
 /** The companion's reasoning effort during the run. */
 const EFFORT = (option('effort') ?? 'medium') as Settings['effort'];
+/** Seconds the engine thinks per companion analysis during the run, when not the setting's. */
+const ANALYSIS_SECONDS = option('analysis-seconds')
+  ? Number(option('analysis-seconds'))
+  : undefined;
 /** Writes down the claims in an answer; whether they are true is then decided by the rules. */
 const EXTRACTOR = option('extractor') ?? SONNET;
 /** Says which reference points an answer conveys. */
@@ -395,9 +399,22 @@ async function run(label: string, models: string[], suites: Suite[], games: numb
   try {
     for (const model of models) {
       // A conversation keeps the model it started with, so one model is asked at a time.
-      await use({ model, effort: EFFORT });
+      await use({
+        model,
+        effort: EFFORT,
+        ...(ANALYSIS_SECONDS && { analysisSeconds: ANALYSIS_SECONDS }),
+      });
       const answers = await pool(cases, 4, ask);
       console.log(`${model}: answered`);
+      const failed = answers.filter(answer => answer.error).length;
+      // A backend that went away mid-run fails every later question; grading those means nothing.
+      if (failed > answers.length / 10) {
+        results.models[model] = answers.map(answer => ({ ...answer, claims: [], covered: [] }));
+        save(results);
+        throw new Error(
+          `${failed} of ${answers.length} answers failed; not grading. Is the backend still running?`,
+        );
+      }
       // Kept before grading, so that answers survive a grading run that is cut short.
       results.models[model] = answers.map(answer => ({ ...answer, claims: [], covered: [] }));
       save(results);
@@ -406,7 +423,11 @@ async function run(label: string, models: string[], suites: Suite[], games: numb
       console.log(`${model}: graded`);
     }
   } finally {
-    await use({ model: original.model, effort: original.effort });
+    await use({
+      model: original.model,
+      effort: original.effort,
+      analysisSeconds: original.analysisSeconds,
+    });
   }
   report(results);
 }

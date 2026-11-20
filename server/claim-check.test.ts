@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { claimFeedback, parseCompactClaims, parts } from './claim-check.ts';
+import { ClaimCheck, claimFeedback, parseCompactClaims, parts } from './claim-check.ts';
 
 it('reads claims written one per line', () => {
   const claims = parseCompactClaims(
@@ -41,4 +41,24 @@ it('quotes the false statements back with the moves they depend on', () => {
   ]);
   expect(feedback).toContain('"Nc3 hits the queen" (after Nc3 from the snapshot)');
   expect(feedback).toContain('complete reply again');
+});
+
+it('sends paragraphs off while the reply is still being written', async () => {
+  const asked: string[] = [];
+  const check = new ClaimCheck(
+    async (_system, message) => {
+      asked.push(message.slice(message.indexOf('list claims from:\n') + 18));
+      // The knight on b1 does not attack anything on d5 in the starting position.
+      return 'attacks ; snapshot ; - ; white n b1 ; black p d5 ; the knight hits d5';
+    },
+    { fen: 'rnbqkbnr/ppp1pppp/8/3p4/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 2' },
+    10,
+  );
+  check.update('First paragraph.');
+  expect(asked).toHaveLength(0);
+  check.update('First paragraph.\n\nSecond');
+  expect(asked).toEqual(['First paragraph.']);
+  const wrong = await check.finish('First paragraph.\n\nSecond paragraph.');
+  expect(asked).toEqual(['First paragraph.', '\n\nSecond paragraph.']);
+  expect(wrong).toHaveLength(2);
 });
