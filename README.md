@@ -265,8 +265,8 @@ material count, which pieces are attacked, defended, loose or pinned, and for th
 each engine line what the move takes, attacks, uncovers and leaves loose. Its prompt tells it to
 take such statements from the facts or not make them.
 
-`npm run eval -- <label>` measures the companion's answers. With the backend running, it asks each
-of three models three kinds of question:
+`npm run eval -- <label>` measures the companion's answers. With the backend running, it asks a
+model (Claude Sonnet 5.5 unless `--models` says otherwise) three kinds of question:
 
 - **mine**: explain the worst and best moves of your most recent games, as the Explain button does;
 - **tactics**: 20 multi-move tactics from the Lichess puzzle database (`evals/tactics.json`), half
@@ -277,14 +277,19 @@ of three models three kinds of question:
 Every answer has its concrete board claims written down by a model and decided by the rules of
 chess (`evals/claims.ts`). Tactics and ideas also have reference points, taken from the puzzle's
 solution or the published annotations, and a judge model says which of them the answer conveys.
-Grading runs on Claude through the bridge by default (Sonnet 5.5 extracts claims, Opus 5.5
-judges; `--extractor` and `--judge` change that), and `npm run eval -- regrade <label>` grades the
-stored answers of an earlier run again. The report gives, per model and suite, the share of reference points
+Sonnet also grades by default (`--extractor` and `--judge` change that), and
+`npm run eval -- regrade <label>` grades the stored answers of an earlier run again.
+
+To try a change to the companion cheaply: restart the backend, run
+`npm run eval -- <label> --quick`, and compare with the previous label. `--quick` asks a fixed
+sample of 24 questions (6 of your games, 6 tactics, 12 ideas) instead of all 75, which is 24
+answers and 42 grading requests; `--suites ideas --no-claims` narrows it to the 12 positional
+questions with one grading request each, and `--limit N` caps every suite at N. The report gives, per model and suite, the share of reference points
 covered, false claims, seconds and estimated cost per answer. Results go to
 `.data/evals/<label>.json`; the questions from your own games are fixed in `.data/evals/cases.json`
 so runs are comparable; `--suites`, `--models` and `--api` narrow or redirect a run, and
-`npm run eval -- compare a b` prints two runs side by side. A full run makes several hundred model
-requests. `docs/ROADMAP.md` records the results so far and what is planned.
+`npm run eval -- compare a b` prints two runs side by side. A full run of one model is 75 answers
+and 126 grading requests. `docs/ROADMAP.md` records the results so far and what is planned.
 
 The agent can only use `analyze_position`, `set_arrows` and `lichess_moves`; the backend refuses to
 run a session with any other tool active. The model's move links are never trusted: the backend asks

@@ -38,6 +38,11 @@ settings, roughly in order of value. Move an item out of this list when it ships
    - Luna got worse at tactics with facts (it found the first move in 15 of 20, down from 20);
      find out why before considering it as the default.
    - Repeat the eval with more than one run per model; the numbers are small.
+   - The eval now defaults to Sonnet for answers and grading, with a `--quick` sample of 24
+     questions, so a change can be tried for about 66 requests. Scores from it are not comparable
+     with the tables above: the judge differs (Sonnet, not Opus) and the wording of the idea
+     questions changed ("A strong player chose X" instead of "White played X here", which had
+     confused Haiku).
 
 2. **Make game review faster.** A 47-move game took 72 seconds the first time and the accuracy
    table stays empty until the end.

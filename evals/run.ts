@@ -12,11 +12,15 @@
  * rules of chess (see claims.ts). Tactics and ideas also have reference
  * points, and a judge model says which of them the answer conveys.
  *
- *   npm run eval -- <label> [--models a,b,c] [--suites mine,tactics,ideas] [--games 6] [--api URL]
+ *   npm run eval -- <label> [--quick] [--suites mine,tactics,ideas] [--models a,b,c]
+ *   npm run eval -- <label> --quick --suites ideas --no-claims     the cheapest loop for ideas
  *   npm run eval -- regrade <label>                 grade stored answers again
  *   npm run eval -- compare <label> <label>
  *
- * Grading runs on Claude through the bridge by default (`--extractor`, `--judge`).
+ * By default Claude Sonnet, through the bridge, both answers and grades (`--models`,
+ * `--extractor`, `--judge`). `--quick` asks a fixed sample of 24 questions instead of all 75,
+ * `--limit N` caps each suite at N, and `--no-claims` skips claim checking. To try a change
+ * to the companion: restart the backend, run with a new label, and compare with the last one.
  *
  * The questions from the player's games are chosen once and kept in
  * `.data/evals/cases.json`, so later runs answer the same ones; delete the
@@ -55,11 +59,16 @@ const API = option('api') ?? `http://127.0.0.1:${PORT}`;
 const here = (file: string) => fileURLToPath(new URL(file, import.meta.url));
 const DIR = join(DATA_DIR, 'evals');
 const CASES_FILE = join(DIR, 'cases.json');
-const DEFAULT_MODELS = ['gpt-6-luna', 'gpt-6.1-terra', 'gpt-6.1-sol'];
+const SONNET = 'claude-bridge/claude-sonnet-5-5';
+/** One mid-priced model answers by default, so that trying a change is quick and cheap. */
+const DEFAULT_MODELS = [SONNET];
+/** `--quick` asks an evenly spread sample of each suite instead of every question. */
+const QUICK = { mine: 6, tactics: 6, ideas: 12 };
+const flag = (name: string) => args.includes(`--${name}`);
 /** Writes down the claims in an answer; whether they are true is then decided by the rules. */
-const EXTRACTOR = option('extractor') ?? 'claude-bridge/claude-sonnet-5-5';
+const EXTRACTOR = option('extractor') ?? SONNET;
 /** Says which reference points an answer conveys. */
-const JUDGE = option('judge') ?? 'claude-bridge/claude-opus-5-5';
+const JUDGE = option('judge') ?? SONNET;
 const SUITES = ['mine', 'tactics', 'ideas'] as const;
 type Suite = (typeof SUITES)[number];
 
@@ -227,7 +236,7 @@ function ideaCases(): Case[] {
       {
         ...base,
         id: `idea:${idea.id}`,
-        message: `${name} played ${idea.moves.at(-1)} here. What is the idea behind it?`,
+        message: `A strong player chose ${idea.moves.at(-1)} for ${name} in this position. What is the idea behind it?`,
         rubric: idea.ideaPoints,
       },
     ];
@@ -268,7 +277,7 @@ async function ask(test: Case): Promise<Reply> {
 async function complete(
   runtime: ModelRuntime,
   modelId: string,
-  effort: 'low' | 'high',
+  effort: 'low' | 'medium',
   systemPrompt: string,
   message: string,
 ): Promise<string> {
@@ -353,7 +362,7 @@ async function judge(runtime: ModelRuntime, test: Case, text: string): Promise<b
   const reply = await complete(
     runtime,
     JUDGE,
-    'high',
+    'medium',
     JUDGE_PROMPT,
     [
       describe('Position', fenAfter(test.moves)),
@@ -411,16 +420,30 @@ function report(results: Results) {
 }
 
 /** The questions of the chosen suites; the player's own are chosen on first use and then kept. */
-async function loadCases(suites: readonly Suite[], games: number): Promise<Case[]> {
+async function loadCases(suites: readonly Suite[], games: number, all = false): Promise<Case[]> {
   mkdirSync(DIR, { recursive: true });
   if (suites.includes('mine') && !existsSync(CASES_FILE)) {
     writeFileSync(CASES_FILE, JSON.stringify(await chooseMine(games)));
   }
-  return [
-    ...(suites.includes('mine') ? (JSON.parse(readFileSync(CASES_FILE, 'utf8')) as Case[]) : []),
-    ...(suites.includes('tactics') ? tacticCases() : []),
-    ...(suites.includes('ideas') ? ideaCases() : []),
-  ];
+  const bySuite: Record<Suite, () => Case[]> = {
+    mine: () => JSON.parse(readFileSync(CASES_FILE, 'utf8')) as Case[],
+    tactics: tacticCases,
+    ideas: ideaCases,
+  };
+  return suites.flatMap(suite => {
+    const cases = bySuite[suite]();
+    // The same questions every time, spread over the suite, so quick runs can be compared.
+    const size = all
+      ? cases.length
+      : Math.min(
+          cases.length,
+          Number(option('limit')) || (flag('quick') ? QUICK[suite] : cases.length),
+        );
+    return Array.from(
+      { length: size },
+      (_, index) => cases[Math.floor((index * cases.length) / size)],
+    );
+  });
 }
 
 const save = (results: Results) =>
@@ -432,7 +455,8 @@ async function grade(runtime: ModelRuntime, cases: Case[], answers: Reply[]): Pr
     const test = cases.find(item => item.id === answer.case);
     if (!test) return { ...answer, claims: [], covered: [] };
     const [claims, covered] = await Promise.all([
-      checkClaims(runtime, test, answer.text).catch(() => []),
+      // Claims need a model call per answer; `--no-claims` skips them when only ideas are being tuned.
+      flag('no-claims') ? [] : checkClaims(runtime, test, answer.text).catch(() => []),
       judge(runtime, test, answer.text).catch(() => test.rubric.map(() => false)),
     ]);
     return { ...answer, claims, covered };
@@ -445,7 +469,10 @@ async function run(label: string, models: string[], suites: Suite[], games: numb
   const counts = SUITES.map(
     suite => `${cases.filter(test => test.suite === suite).length} ${suite}`,
   );
+  const gradings =
+    cases.filter(test => test.rubric.length).length + (flag('no-claims') ? 0 : cases.length);
   console.log(`${cases.length} questions: ${counts.join(', ')}`);
+  console.log(`per model: ${cases.length} answers and ${gradings} grading requests`);
 
   const runtime = await ModelRuntime.create();
   const original = (await json<SettingsInfo>('/api/settings')).settings;
@@ -475,7 +502,7 @@ async function run(label: string, models: string[], suites: Suite[], games: numb
 /** Grades the stored answers of an earlier run again with the current graders. */
 async function regrade(label: string) {
   const results = load(label);
-  const cases = await loadCases(SUITES, 0);
+  const cases = await loadCases(SUITES, 0, true);
   const runtime = await ModelRuntime.create();
   results.graders = { extractor: EXTRACTOR, judge: JUDGE };
   for (const [model, answers] of Object.entries(results.models)) {
@@ -492,7 +519,9 @@ else if (command === 'regrade') {
   await regrade(args[1]);
   process.exit(0);
 } else if (!command || command.startsWith('--')) {
-  console.log('usage: npm run eval -- <label> [--models a,b] [--suites mine,tactics,ideas]');
+  console.log(
+    'usage: npm run eval -- <label> [--quick] [--suites mine,tactics,ideas] [--models a,b]',
+  );
 } else {
   await run(
     command,
