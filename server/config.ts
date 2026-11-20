@@ -80,3 +80,6 @@ export const MAX_BODY_CHARS = 32_000;
 export const MAX_PGN_CHARS = 2_000_000;
 export const MAX_HISTORY_MOVES = 2000;
 export const MAX_CONVERSATIONS = 10;
+
+/** Whether the companion's replies are checked against the board; `CHESS_CLAIM_CHECK=0` turns it off. */
+export const CLAIM_CHECK = process.env.CHESS_CLAIM_CHECK !== '0';

@@ -154,6 +154,23 @@ settings, roughly in order of value. Move an item out of this list when it ships
      ties the plan to the position's features. Many false claims are loose coaching language read
      literally ("eyes the knight", "pins down"), some are real.
 
+     Further changes, each measured on all 96 questions. Two samples of the same setup agreed on
+     241 of 276 points and differed by 0 points on `tutor`, 3 on `coach` and 3 false claims, so
+     read 5 or more on `coach` as real. False claims are recounted with the current checker, which
+     now accepts relative pins ("Bg4 pins the knight to the queen"), so they differ slightly from
+     the table above.
+
+     | Change                                                                                          | `tutor` | `coach` | False claims | $ per answer | Seconds |
+     | ----------------------------------------------------------------------------------------------- | ------- | ------- | ------------ | ------------ | ------- |
+     | coaching section in the prompt (purpose of a move, thinking errors, imbalances; not kept)       | 79%     | 48%     | 28           | 0.027        | 13      |
+     | `diagnose_move`: what a move allowed, a threat already there, a win not taken (two samples)     | 82%     | 47–50%  | 20–22        | 0.015–0.020  | 12      |
+     | positional facts and their change by each line's end in `analyze_position`, plans in the prompt | 87%     | 52%     | 26           | 0.031        | 12      |
+     | reply's board claims checked by the rules, false ones sent back to be rewritten (Haiku)         | 88%     | 52%     | 8            | 0.025¹       | 37      |
+     | the same with Sonnet, a compact one-line format and paragraphs checked in parallel              | 87%     | 49%     | 4            | 0.057        | 23      |
+
+     ¹ Without the check's own cost, which the last row includes. Haiku was the slow one: about 3,300
+     hidden reasoning tokens and 16 seconds for a paragraph that Sonnet did in 8.
+
    - The eval now defaults to Sonnet for answers and grading, with a `--quick` sample of 24
      questions, so a change can be tried for about 66 requests. Scores from it are not comparable
      with the tables above: the judge differs (Sonnet, not Opus) and the wording of the idea

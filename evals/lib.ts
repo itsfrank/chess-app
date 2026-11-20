@@ -2,17 +2,10 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  createAgentSession,
-  SessionManager,
-  SettingsManager,
-  type ModelRuntime,
-} from '@earendil-works/pi-coding-agent';
 import { Chess } from 'chess.js';
 import type { ArchivedGame } from '../shared/protocol.ts';
 import type { TutorGame } from './fetch-tutor.ts';
-import { bridgedCost, createBridgeSession, promptOnly } from '../server/chat.ts';
-import { CLAUDE_BRIDGE, DATA_DIR, splitModel } from '../server/config.ts';
+import { DATA_DIR } from '../server/config.ts';
 import { positionFacts } from '../server/facts.ts';
 
 export const SONNET = 'claude-bridge/claude-sonnet-5-5';
@@ -161,63 +154,7 @@ export function coachCases(): Case[] {
   return existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as Case[]) : [];
 }
 
-export type Completion = { text: string; tokens: number; cost: number; seconds: number };
-
-/** One reply from `modelId` to `message` under `systemPrompt`, with no tools. */
-export async function complete(
-  runtime: ModelRuntime,
-  modelId: string,
-  effort: 'low' | 'medium',
-  systemPrompt: string,
-  message: string,
-): Promise<Completion> {
-  const model = splitModel(modelId);
-  const unavailable = () => new Error(`${modelId} is unavailable`);
-  let session;
-  if (model.provider === CLAUDE_BRIDGE.provider) {
-    session = await createBridgeSession(runtime, systemPrompt);
-    const found = runtime.getModel(model.provider, model.id);
-    if (!found) throw unavailable();
-    await session.setModel(found);
-    session.setThinkingLevel(effort);
-  } else {
-    const found = runtime.getModel(model.provider, model.id);
-    if (!found) throw unavailable();
-    ({ session } = await createAgentSession({
-      modelRuntime: runtime,
-      model: found,
-      thinkingLevel: effort,
-      resourceLoader: promptOnly(systemPrompt),
-      tools: [],
-      customTools: [],
-      settingsManager: SettingsManager.inMemory(),
-      sessionManager: SessionManager.inMemory(),
-    }));
-  }
-  const started = Date.now();
-  const reply: Completion = { text: '', tokens: 0, cost: 0, seconds: 0 };
-  let failure: string | undefined;
-  session.subscribe(event => {
-    if (event.type === 'message_update' && event.assistantMessageEvent.type === 'text_delta')
-      reply.text += event.assistantMessageEvent.delta;
-    if (event.type === 'message_end' && event.message.role === 'assistant') {
-      const { usage, stopReason, errorMessage } = event.message;
-      if (usage) {
-        reply.tokens += usage.totalTokens;
-        reply.cost += usage.cost.total || bridgedCost(runtime, model, usage);
-      }
-      if (stopReason === 'error') failure = errorMessage || 'Model request failed';
-    }
-  });
-  try {
-    await session.prompt(message);
-    if (failure) throw new Error(failure);
-    reply.seconds = (Date.now() - started) / 1000;
-    return reply;
-  } finally {
-    session.dispose();
-  }
-}
+export { complete, type Completion } from '../server/chat.ts';
 
 /** A position for a grader: the FEN and each side's pieces spelled out. */
 export const describe = (name: string, fen: string) => {

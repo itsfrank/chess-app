@@ -20,10 +20,19 @@
  */
 import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { Chess, type Color, type PieceSymbol } from 'chess.js';
-import type { Analysis, Evaluation } from '../shared/protocol.ts';
-import { numberedMove, winChance } from '../shared/quality.ts';
-import { describeLine, positionalChange, positionalFacts } from '../server/facts.ts';
+import { Chess, type Color } from 'chess.js';
+import { numberedMove } from '../shared/quality.ts';
+import {
+  balance,
+  chances,
+  featureChange,
+  goodMoves,
+  mate,
+  moveInWords,
+  passed,
+  playLine,
+  winnings,
+} from '../server/diagnosis.ts';
 import { analyze } from '../server/stockfish.ts';
 import { fenAfter, pool } from './lib.ts';
 
@@ -57,15 +66,6 @@ const FILE = fileURLToPath(new URL('./tutor.json', import.meta.url));
 const QUICK_MS = 400;
 const DEEP_MS = 3000;
 const ENGINES = 6;
-const VALUE: Record<PieceSymbol, number> = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
-const NAME: Record<PieceSymbol, string> = {
-  p: 'pawn',
-  n: 'knight',
-  b: 'bishop',
-  r: 'rook',
-  q: 'queen',
-  k: 'king',
-};
 const enemy = (color: Color): Color => (color === 'w' ? 'b' : 'w');
 
 // ---------------------------------------------------------------------------
@@ -125,110 +125,6 @@ const clubRapid = ({ headers }: Pgn) => {
     headers.Termination === 'Normal' &&
     elos.every(elo => elo >= 1300 && elo <= 1800)
   );
-};
-
-// ---------------------------------------------------------------------------
-// Material and lines
-
-const counts = (board: Chess, color: Color) => {
-  const found: Partial<Record<PieceSymbol, number>> = {};
-  for (const row of board.board())
-    for (const piece of row)
-      if (piece?.color === color) found[piece.type] = (found[piece.type] ?? 0) + 1;
-  return found;
-};
-const points = (board: Chess, color: Color) =>
-  Object.entries(counts(board, color)).reduce(
-    (sum, [type, count]) => sum + VALUE[type as PieceSymbol] * count!,
-    0,
-  );
-/** `color`'s material lead. */
-const balance = (board: Chess, color: Color) => points(board, color) - points(board, enemy(color));
-
-/**
- * Plays the start of `line` from `fen`: at least `plies` half-moves, and on
- * through any captures still going on, so an exchange is not cut in half.
- */
-function playLine(fen: string, line: string[], plies = 6): Chess {
-  const board = new Chess(fen);
-  for (let index = 0; index < Math.min(line.length, plies + 4); index++) {
-    const move = board.move(line[index]);
-    if (index + 1 >= plies && !move.captured && !board.isCheck()) break;
-  }
-  return board;
-}
-
-/** "a knight and a pawn" for a count of pieces by type. */
-const pieces = (net: [PieceSymbol, number][]) =>
-  net
-    .map(([type, count]) => (count === 1 ? `a ${NAME[type]}` : `${count} ${NAME[type]}s`))
-    .join(' and ');
-
-/** What `color` wins along a line, net of what it gives back, in words: "a knight for a pawn". */
-function winnings(before: Chess, after: Chess, color: Color): string {
-  const lossOf = (side: Color) => {
-    const [was, is] = [counts(before, side), counts(after, side)];
-    return (type: PieceSymbol) => (was[type] ?? 0) - (is[type] ?? 0);
-  };
-  const [theirs, mine] = [lossOf(enemy(color)), lossOf(color)];
-  const types = Object.keys(NAME) as PieceSymbol[];
-  const net = types.map(type => [type, theirs(type) - mine(type)] as [PieceSymbol, number]);
-  const won = net.filter(([, count]) => count > 0);
-  const given = net.filter(([, count]) => count < 0).map(([type, count]) => [type, -count]);
-  return given.length
-    ? `${pieces(won)} for ${pieces(given as [PieceSymbol, number][])}`
-    : pieces(won);
-}
-
-/** One move of a line, in words: "Qa5+ (queen d8 to a5, with check, attacking bishop d2)". */
-function moveInWords(fen: string, san: string): string {
-  const [step] = describeLine(fen, [san], 1).steps;
-  const parts = [step.does];
-  if (step.check) parts.push('with check');
-  if (step.attacks?.length) parts.push(`attacking ${step.attacks.join(' and ')}`);
-  if (step.uncovers?.length) parts.push(`uncovering ${step.uncovers.join(' and ')}`);
-  return `${san} (${parts.join(', ')})`;
-}
-
-/** Whether `evaluation` is a forced mate for `color` (scores are from White's side). */
-function mate(evaluation: Evaluation, color: Color): boolean {
-  if (evaluation.type !== 'mate') return false;
-  const winner =
-    evaluation.value > 0
-      ? 'w'
-      : evaluation.value < 0
-        ? 'b'
-        : evaluation.winner === 'white'
-          ? 'w'
-          : 'b';
-  return winner === color;
-}
-
-/** The mover's winning chances, 0 to 100. */
-const chances = (evaluation: Evaluation, color: Color) =>
-  color === 'w' ? winChance(evaluation) : 100 - winChance(evaluation);
-
-/** The position with the other side to move, as if the side to move had passed; null in check. */
-function passed(fen: string): string | null {
-  const board = new Chess(fen);
-  if (board.isCheck()) return null;
-  const fields = fen.split(' ');
-  fields[1] = fields[1] === 'w' ? 'b' : 'w';
-  fields[3] = '-';
-  try {
-    const flipped = new Chess(fields.join(' '));
-    return flipped.isCheck() ? null : flipped.fen();
-  } catch {
-    return null;
-  }
-}
-
-/** The engine's moves within `margin` of its first choice, in SAN. */
-const goodMoves = (analysis: Analysis, color: Color, margin: number) => {
-  const best = chances(analysis.moves[0].evaluation, color);
-  return analysis.moves
-    .filter(move => best - chances(move.evaluation, color) <= margin)
-    .map(move => move.san);
 };
 
 const or = (moves: string[]) =>
@@ -314,21 +210,6 @@ async function mistakeCase(game: TutorGame, ply: number): Promise<TutorCase | nu
   };
 }
 
-/**
- * A positional fact with what changes on almost every move taken out (pawn
- * lists, counts of safe moves, squares attacked, how many pawns stand on a
- * bishop's colour), so that two positions differ only where a feature does.
- * Empty for facts that are only counts.
- */
-function gist(fact: string): string {
-  if (/safe moves in all|^(White|Black) space:/.test(fact)) return '';
-  const pawns = /^(White|Black) pawns: [^;]*; (\d+ islands?)/.exec(fact);
-  if (pawns) return `${pawns[1]} pawns: ${pawns[2]}`;
-  const bishop = /^(White|Black) bishop [a-h][1-8] (\([a-z]+ squares\)).* — (.*)$/.exec(fact);
-  if (bishop) return `${bishop[1]} bishop ${bishop[2]}: ${bishop[3]}`;
-  return fact.replace(/; \d+ of the squares around it attacked by (White|Black)/, '');
-}
-
 /** What to aim for in a quiet position at `ply`, if it is quiet enough; null otherwise. */
 async function planCase(game: TutorGame, ply: number): Promise<TutorCase | null> {
   const color: Color = ply % 2 === 0 ? 'w' : 'b';
@@ -345,8 +226,7 @@ async function planCase(game: TutorGame, ply: number): Promise<TutorCase | null>
   if (good.length < 2 || forcing) return null;
 
   const end = playLine(fen, now.moves[0].continuation, 8);
-  const [was, is] = [positionalFacts(fen), positionalFacts(end.fen())];
-  const change = positionalChange(was.map(gist).filter(Boolean), is.map(gist).filter(Boolean));
+  const change = featureChange(fen, end.fen());
   const features = [
     ...change.new.map(fact => `${fact} (comes about)`),
     ...change.gone.map(fact => `${fact} (goes away)`),

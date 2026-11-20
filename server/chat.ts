@@ -14,8 +14,11 @@ import {
   type ResourceLoader,
 } from '@earendil-works/pi-coding-agent';
 import type { ChatRequest, Effort, ServerEvent, Totals } from '../shared/protocol.ts';
+import { numberedMove } from '../shared/quality.ts';
 import { annotationErrors, repairAnnotations } from './annotation-feedback.ts';
+import { claimFeedback, falseClaims } from './claim-check.ts';
 import {
+  CLAIM_CHECK,
   CLAUDE_BRIDGE,
   ENGINE,
   MAX_CONVERSATIONS,
@@ -412,6 +415,31 @@ export class ChatService {
           conversation.emit({ type: 'text', delta });
         }
       }
+      // Claims about the board are checked by the rules, and a reply with false ones is rewritten.
+      if (CLAIM_CHECK && text.trim() && !cancelled()) {
+        conversation.emit({ type: 'status', text: 'Checking the explanation against the board…' });
+        const wrong = await falseClaims(
+          (system, question) => this.ask(conversation, system, question),
+          text,
+          {
+            fen,
+            ...(conversation.previousFen && {
+              before: {
+                fen: conversation.previousFen,
+                move: numberedMove(moves.length - 1, moves[moves.length - 1]),
+              },
+            }),
+            continuation: game?.moves.slice(moves.length),
+          },
+        ).catch(() => []);
+        recorder.record('claim_check', { false: wrong });
+        if (wrong.length && !cancelled()) {
+          conversation.emit({ type: 'replace_text', text: '' });
+          conversation.emit({ type: 'status', text: 'Correcting a statement about the board…' });
+          text = '';
+          await prompt(claimFeedback(wrong));
+        }
+      }
       const remaining = await repairAnnotations({
         errors: () => annotationErrors(fen, text, conversation.arrows),
         cancelled,
@@ -438,6 +466,14 @@ export class ChatService {
     }
   }
 
+  /** A one-off reply from the companion's model for a check on its work, counted in its usage. */
+  private async ask(conversation: Conversation, system: string, question: string) {
+    const { provider, id } = conversation.model;
+    const reply = await complete(this.modelRuntime, `${provider}/${id}`, 'low', system, question);
+    this.addUsage(conversation, reply.tokens, reply.cost);
+    return reply.text;
+  }
+
   private addUsage(conversation: Conversation, tokens: number, cost: number) {
     const add = (totals: Totals) => {
       totals.tokens += Number.isFinite(tokens) ? Math.max(0, tokens) : 0;
@@ -451,5 +487,63 @@ export class ChatService {
       conversation.emit({ type: 'status', text: 'Warning: lifetime usage could not be saved.' });
     }
     conversation.emit({ type: 'usage', session: conversation.usage, lifetime: this.lifetime });
+  }
+}
+
+/** One reply from `modelId` to `message` under `systemPrompt`, with no tools. */
+export type Completion = { text: string; tokens: number; cost: number; seconds: number };
+
+export async function complete(
+  runtime: ModelRuntime,
+  modelId: string,
+  effort: 'low' | 'medium',
+  systemPrompt: string,
+  message: string,
+): Promise<Completion> {
+  const model = splitModel(modelId);
+  const unavailable = () => new Error(`${modelId} is unavailable`);
+  let session;
+  if (model.provider === CLAUDE_BRIDGE.provider) {
+    session = await createBridgeSession(runtime, systemPrompt);
+    const found = runtime.getModel(model.provider, model.id);
+    if (!found) throw unavailable();
+    await session.setModel(found);
+    session.setThinkingLevel(effort);
+  } else {
+    const found = runtime.getModel(model.provider, model.id);
+    if (!found) throw unavailable();
+    ({ session } = await createAgentSession({
+      modelRuntime: runtime,
+      model: found,
+      thinkingLevel: effort,
+      resourceLoader: promptOnly(systemPrompt),
+      tools: [],
+      customTools: [],
+      settingsManager: SettingsManager.inMemory(),
+      sessionManager: SessionManager.inMemory(),
+    }));
+  }
+  const started = Date.now();
+  const reply: Completion = { text: '', tokens: 0, cost: 0, seconds: 0 };
+  let failure: string | undefined;
+  session.subscribe(event => {
+    if (event.type === 'message_update' && event.assistantMessageEvent.type === 'text_delta')
+      reply.text += event.assistantMessageEvent.delta;
+    if (event.type === 'message_end' && event.message.role === 'assistant') {
+      const { usage, stopReason, errorMessage } = event.message;
+      if (usage) {
+        reply.tokens += usage.totalTokens;
+        reply.cost += usage.cost.total || bridgedCost(runtime, model, usage);
+      }
+      if (stopReason === 'error') failure = errorMessage || 'Model request failed';
+    }
+  });
+  try {
+    await session.prompt(message);
+    if (failure) throw new Error(failure);
+    reply.seconds = (Date.now() - started) / 1000;
+    return reply;
+  } finally {
+    session.dispose();
   }
 }

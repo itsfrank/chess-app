@@ -286,7 +286,7 @@ model (Claude Sonnet 5.5 unless `--models` says otherwise) these kinds of questi
   `.data/evals/gold/coach.json` and never committed; without that file the suite is empty.
 
 Every answer has its concrete board claims written down by a model and decided by the rules of
-chess (`evals/claims.ts`). The other suites also have reference points, taken from the puzzle's
+chess (`server/claims.ts`, which the companion also uses to check its own replies). The other suites also have reference points, taken from the puzzle's
 solution, published annotations or the engine, and a judge model says which of them the answer
 conveys. Before asking about a game that is not yours, the runner has the backend review it, so
 the companion sees the engine review as in the app; at depth 16 that takes a while the first time.

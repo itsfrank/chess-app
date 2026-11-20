@@ -59,3 +59,13 @@ it('reads the claim list out of a reply with text around it', () => {
   expect(parseClaims('Here you go:\n[{"kind":"check","line":["Qh5+"]}]\nDone.')).toHaveLength(1);
   expect(parseClaims('none')).toEqual([]);
 });
+
+it('counts a relative pin, as coaches use the word', () => {
+  // 1.e4 e5 2.Nf3 d6 3.d4 Bg4: the knight on f3 is pinned to the queen on d1, not to the king.
+  const start = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+  const line = ['e4', 'e5', 'Nf3', 'd6', 'd4', 'Bg4'];
+  const pinned = claim({ kind: 'pinned', line, subject: { piece: 'n', square: 'f3' } });
+  expect(verify(pinned, start)).toBe('true');
+  // Nothing stands between the knight on b1 and anything more valuable.
+  expect(verify({ ...pinned, subject: { piece: 'n', square: 'b1' } }, start)).toBe('false');
+});

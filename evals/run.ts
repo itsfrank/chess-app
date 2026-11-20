@@ -15,7 +15,7 @@
  *   committed (see `coachCases`); empty where it has not been built.
  *
  * Every answer has its concrete board claims extracted and decided by the
- * rules of chess (see claims.ts). Tactics, ideas and tutor also have reference
+ * rules of chess (see server/claims.ts). The other suites also have reference
  * points, and a judge model says which of them the answer conveys.
  *
  *   npm run eval -- <label> [--quick] [--suites mine,tactics,ideas,tutor,coach] [--models a,b,c]
@@ -45,7 +45,13 @@ import type {
 import { explainPrompt, numberedMove, reviewGame } from '../shared/quality.ts';
 import { DATA_DIR, PORT } from '../server/config.ts';
 import { lineFacts, positionFacts } from '../server/facts.ts';
-import { EXTRACTOR_PROMPT, parseClaims, verify, type Claim, type Verdict } from './claims.ts';
+import {
+  EXTRACTOR_PROMPT,
+  parseClaims,
+  verify,
+  type Claim,
+  type Verdict,
+} from '../server/claims.ts';
 import type { Tactic } from './fetch-tactics.ts';
 import {
   complete,

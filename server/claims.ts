@@ -4,7 +4,7 @@
  * a claim is true is then decided by the rules of chess, not by a model.
  */
 import { Chess, type Color, type PieceSymbol, type Square } from 'chess.js';
-import { pinnedPieces } from '../server/facts.ts';
+import { pinnedPieces } from './facts.ts';
 
 /** A piece as an answer refers to it: "the knight", "White's queen", "the rook on c7". */
 export type PieceRef = { color?: 'white' | 'black'; piece?: PieceSymbol; square?: string };
@@ -98,10 +98,40 @@ export function verify(claim: Claim, snapshot: string, before?: string): Verdict
     case 'piece_on':
       return claim.subject.square ? (subjects.length ? 'true' : 'false') : 'unclear';
     case 'pinned':
-      return pinnedPieces(board).some(piece => matches(claim.subject, piece)) ? 'true' : 'false';
+      return pinnedPieces(board).some(piece => matches(claim.subject, piece)) ||
+        subjects.some(piece => relativelyPinned(board, piece))
+        ? 'true'
+        : 'false';
     default:
       return 'unclear';
   }
+}
+
+const VALUE: Record<PieceSymbol, number> = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+
+/**
+ * A relative pin, as coaches use the word: moving `piece` would let an enemy bishop, rook or
+ * queen attack a more valuable piece of its side behind it ("Bg4 pins the knight to the queen").
+ */
+function relativelyPinned(board: Chess, piece: Placed): boolean {
+  if (piece.type === 'k') return false;
+  const enemy = piece.color === 'w' ? 'b' : 'w';
+  const without = new Chess(board.fen(), { skipValidation: true });
+  without.remove(piece.square);
+  return board
+    .board()
+    .flat()
+    .some(
+      behind =>
+        !!behind &&
+        behind.color === piece.color &&
+        behind.type !== 'k' &&
+        VALUE[behind.type] > VALUE[piece.type] &&
+        without
+          .attackers(behind.square, enemy)
+          .filter(square => !board.attackers(behind.square, enemy).includes(square))
+          .some(square => 'bqr'.includes(board.get(square)?.type ?? '')),
+    );
 }
 
 /** The claims in a model's reply, which should be a JSON array and nothing else. */
