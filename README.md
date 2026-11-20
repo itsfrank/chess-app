@@ -283,7 +283,10 @@ Sonnet also grades by default (`--extractor` and `--judge` change that), and
 
 **The lab** (`npm run lab`) is the inner loop for improving how the companion explains ideas. It
 needs no backend. `npm run lab -- freeze` runs the engine once on every positional question and
-keeps the result; a strategy in `evals/strategies.ts` then turns that frozen context into a single
+keeps the result, with the positional facts (`positionalFacts` in `server/facts.ts`: pawn
+structure, files, outposts, bishops, restricted pieces, king cover, pawn breaks) before the move,
+after it and at the end of the engine's line. Run again, it only recomputes the board facts and
+any engine work it is missing, so cached answers stay valid; `--engine` reruns everything. A strategy in `evals/strategies.ts` then turns that frozen context into a single
 model request, so trying an idea costs one request per question and no engine time.
 `npm run lab -- compare <old> <new>` answers a dozen questions with each strategy (Claude Haiku
 unless `--model sonnet`; answers are cached by what was sent), prints free metrics for both (words,

@@ -43,6 +43,36 @@ settings, roughly in order of value. Move an item out of this list when it ships
      Haiku over 12 questions: rewriting the prompt around plans (`ideas` against `current`) took
      engine scores quoted per answer from 3.3 to 0 but conveyed no more of the reasoning (10 → 9
      of 36 points). The prompt alone is not the lever; the missing piece is information.
+   - Lab results, 19 November 2026 (Haiku answers, Sonnet judge; "of 36" is the 12-question
+     sample, "of 86" all 31 questions). The judge's point count for the same answers moved between
+     7 and 12 of 36 across runs, so read the win/loss split first and treat 2–3 points as noise.
+
+     | Strategy (`evals/strategies.ts`)                                              | Against        | Points conveyed | Better / worse / tie | p    | Scores quoted per answer | Words     |
+     | ----------------------------------------------------------------------------- | -------------- | --------------- | -------------------- | ---- | ------------------------ | --------- |
+     | `ideas`: prompt rewritten around plans                                        | `current`      | 10 → 9 of 36    | 2 / 3 / 7            | 1.0  | 3.3 → 0                  |           |
+     | `positional`: + positional facts, and their change right after the move       | `current`      | 12 → 14 of 36   | 2 / 1 / 9            | 1.0  | 3.3 → 4.3                | 171 → 214 |
+     | `consequences`: + their change by the end of the engine's line after the move | `current`      | 7 → 16 of 36    | **8 / 0 / 4**        | 0.01 | 3.3 → 2.8                | 171 → 220 |
+     | `consequences`, all 31 questions                                              | `current`      | 22 → 35 of 86   | **13 / 4 / 14**      | 0.05 | 3.1 → 3.5                | 172 → 222 |
+     | `consequences`, answered by Sonnet                                            | `current`      | 15 → 20 of 36   | 5 / 2 / 5            | 0.45 | 6.1 → 4.3                | 248 → 296 |
+     | `coach`: + two-part answer (what changes, the idea) and a theme checklist     | `consequences` | 14 → 12 of 36   | 2 / 3 / 7            | 1.0  | 2.8 → 0.1                | 220 → 259 |
+     | `threat`: + what the opponent would play if the mover passed                  | `consequences` | 15 → 10 of 36   | 0 / 7 / 5            | 0.02 | 3.3 → 2.2                | 213 → 228 |
+
+     What this says: information beats instructions, but only information about where the move
+     leads. Positional facts of the position alone were cited as a checklist ("the rook sits on an
+     outpost") without changing the explanation; the same facts at the end of the engine's line let
+     Haiku say what the move is for, and on this sample Haiku with them (15–16 of 36) roughly
+     matches Sonnet without them (15). Prompt changes move style (scores quoted fall to almost
+     nothing under `ideas` and `coach`) but not substance. The null-move line hurt: in quiet
+     positions the engine's "pass" move is a regrouping rather than the plan annotators describe,
+     and Haiku took it as proof that a prophylactic move was not prophylactic. Questions of the form
+     "why is X not best" barely moved under any strategy (Tsvetkov–Smyslov's queen trade stays at 0
+     even with the facts showing the bad bishop and that neither king can advance: the answers still
+     call the moves equal on the engine's score); Fischer–Petrosian went from 0 to 1 of 2 with
+     `consequences` and 2 of 2 with `coach`. Next: ship the positional facts and the line-end change
+     to the companion (as fields of `analyze_position`'s result) and confirm with `npm run eval`;
+     make the change less noisy (pair each feature before and after instead of listing changed
+     sentences); for "why not X", compare the two moves' line-end facts side by side.
+
    - The eval now defaults to Sonnet for answers and grading, with a `--quick` sample of 24
      questions, so a change can be tried for about 66 requests. Scores from it are not comparable
      with the tables above: the judge differs (Sonnet, not Opus) and the wording of the idea

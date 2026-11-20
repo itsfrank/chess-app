@@ -6,7 +6,8 @@
  * strategies are compared by one judge request per dozen questions that sees
  * both answers unlabelled.
  *
- *   npm run lab -- freeze                         run the engine on every question (no model)
+ *   npm run lab -- freeze [--engine]              compute every question's context (no model);
+ *                                                 the engine runs only with --engine or when nothing is frozen
  *   npm run lab -- run <strategy> [--model haiku] answer, cached, and print the free metrics
  *   npm run lab -- compare <old> <new>            answer both, then judge them head to head
  *   npm run lab -- show <strategy> <case-id>      print one answer beside its reference points
@@ -23,7 +24,7 @@ import { ModelRuntime } from '@earendil-works/pi-coding-agent';
 import { Chess } from 'chess.js';
 import type { Analysis } from '../shared/protocol.ts';
 import { DATA_DIR } from '../server/config.ts';
-import { describeLine, describePosition } from '../server/facts.ts';
+import { describeLine, describePosition, positionalFacts } from '../server/facts.ts';
 import { analyze } from '../server/stockfish.ts';
 import { complete, fenAfter, HAIKU, ideaCases, pool, SONNET, spread, type Case } from './lib.ts';
 import { measure, plain, summarizeMetrics } from './metrics.ts';
@@ -50,7 +51,20 @@ export type Context = {
   afterFocus: { move: object; analysis: Lines };
   /** The same for the move the master played, when the question is about another move. */
   afterKey?: { move: object; analysis: Lines };
+  /**
+   * What the opponent would play if the side to move passed: the engine's best line with the turn
+   * handed over, or null when that is illegal (the side to move is in check).
+   */
+  threat?: { analysis: Lines } | null;
+  /** Positional facts (server/facts.ts), recomputed from the board without the engine. */
+  positional: {
+    before: string[];
+    afterFocus: Outlook;
+    afterKey?: Outlook;
+  };
 };
+/** The positional facts after a move, and after the engine's best line from there. */
+type Outlook = { now: string[]; line: string[]; afterLine: string[] };
 type Stored = { text: string; tokens: number; cost: number; seconds: number };
 type Verdict = { winner: 'old' | 'new' | 'tie'; old: number; new: number };
 
@@ -79,8 +93,64 @@ async function lines(fen: string): Promise<Lines> {
   };
 }
 
-/** Runs the engine on every question's position and on the moves it asks about. */
+/** The engine's best line for the opponent if the side to move could pass. */
+async function threat(fen: string): Promise<{ analysis: Lines } | null> {
+  if (new Chess(fen).isCheck()) return null;
+  const parts = fen.split(' ');
+  parts[1] = parts[1] === 'w' ? 'b' : 'w';
+  parts[3] = '-';
+  return { analysis: await lines(parts.join(' ')) };
+}
+
+/** Positional facts after a move, and at the end of the engine's best line that follows it. */
+function outlook(fen: string, analysis: Lines, plies = 8): Outlook {
+  const board = new Chess(fen);
+  const now = positionalFacts(board.fen());
+  const best = (analysis.moves[0] as { continuation?: string[] } | undefined)?.continuation ?? [];
+  const line: string[] = [];
+  for (const san of best.slice(0, plies)) {
+    try {
+      line.push(board.move(san).san);
+    } catch {
+      break;
+    }
+  }
+  return { now, line, afterLine: positionalFacts(board.fen()) };
+}
+
+/** The facts that need no engine, from a context's frozen positions. */
+function withBoardFacts(context: Omit<Context, 'positional'>): Context {
+  return {
+    ...context,
+    positional: {
+      before: positionalFacts(context.fen),
+      afterFocus: outlook(context.afterFocus.analysis.fen, context.afterFocus.analysis),
+      ...(context.afterKey && {
+        afterKey: outlook(context.afterKey.analysis.fen, context.afterKey.analysis),
+      }),
+    },
+  };
+}
+
+/**
+ * Runs the engine on every question's position and on the moves it asks about, then adds the
+ * board facts. With contexts already frozen and no `--engine`, only the board facts are redone, so
+ * the engine output (and every answer cached on it) stays the same.
+ */
 async function freeze() {
+  if (existsSync(CONTEXTS) && !args.includes('--engine')) {
+    const frozen = readJson<Context[]>(CONTEXTS, []);
+    // Engine work added after a freeze is done only where it is missing.
+    const contexts = await pool(frozen, 4, async context =>
+      withBoardFacts({
+        ...context,
+        threat: context.threat === undefined ? await threat(context.fen) : context.threat,
+      }),
+    );
+    writeJson(CONTEXTS, contexts);
+    console.log(`board facts of ${contexts.length} contexts rewritten in ${CONTEXTS}`);
+    return;
+  }
   const cases = ideaCases();
   const after = async (fen: string, san: string) => {
     const board = new Chess(fen);
@@ -89,14 +159,15 @@ async function freeze() {
   };
   const contexts = await pool(cases, 4, async (test): Promise<Context> => {
     const fen = fenAfter(test.moves);
-    return {
+    return withBoardFacts({
       test,
       fen,
       position: describePosition(fen),
       analysis: await lines(fen),
       afterFocus: await after(fen, test.focus!),
       ...(test.focus !== test.keyMove && { afterKey: await after(fen, test.keyMove!) }),
-    };
+      threat: await threat(fen),
+    });
   });
   writeJson(CONTEXTS, contexts);
   console.log(`${contexts.length} contexts written to ${CONTEXTS}`);
