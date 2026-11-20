@@ -1,0 +1,271 @@
+/**
+ * A cheap loop for improving how the companion explains ideas. Instead of a
+ * whole conversation with tool calls per question, each question's context is
+ * computed once and kept; a strategy (strategies.ts) turns it into a single
+ * model request. Answers are cached, measured for free (metrics.ts), and two
+ * strategies are compared by one judge request per dozen questions that sees
+ * both answers unlabelled.
+ *
+ *   npm run lab -- freeze                         run the engine on every question (no model)
+ *   npm run lab -- run <strategy> [--model haiku] answer, cached, and print the free metrics
+ *   npm run lab -- compare <old> <new>            answer both, then judge them head to head
+ *   npm run lab -- show <strategy> <case-id>      print one answer beside its reference points
+ *
+ * A dozen questions are used unless `--all` asks for all 31. `--model` is
+ * `haiku` (the default: cheapest, and with the most to gain) or `sonnet`;
+ * `--judge` is `sonnet` by default. Needs no backend, only Stockfish and the
+ * Claude bridge. What holds up here should then be confirmed with `npm run eval`.
+ */
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { ModelRuntime } from '@earendil-works/pi-coding-agent';
+import { Chess } from 'chess.js';
+import type { Analysis } from '../shared/protocol.ts';
+import { DATA_DIR } from '../server/config.ts';
+import { describeLine, describePosition } from '../server/facts.ts';
+import { analyze } from '../server/stockfish.ts';
+import { complete, fenAfter, HAIKU, ideaCases, pool, SONNET, spread, type Case } from './lib.ts';
+import { measure, plain, summarizeMetrics } from './metrics.ts';
+import { STRATEGIES } from './strategies.ts';
+
+const DIR = join(DATA_DIR, 'evals', 'lab');
+const CONTEXTS = join(DIR, 'contexts.json');
+const ANSWERS = join(DIR, 'answers.json');
+const VERDICTS = join(DIR, 'verdicts.json');
+const SAMPLE = 12;
+const BATCH = 12;
+const ENGINE_MS = 2500;
+const MODELS: Record<string, string> = { haiku: HAIKU, sonnet: SONNET };
+
+/** The engine's lines with what each move does, as the companion's tool would return them. */
+type Lines = Omit<Analysis, 'moves'> & { moves: object[] };
+/** Everything known about a question before any model is asked. */
+export type Context = {
+  test: Case;
+  fen: string;
+  position: object;
+  analysis: Lines;
+  /** What the move asked about does, and the engine's view of the position after it. */
+  afterFocus: { move: object; analysis: Lines };
+  /** The same for the move the master played, when the question is about another move. */
+  afterKey?: { move: object; analysis: Lines };
+};
+type Stored = { text: string; tokens: number; cost: number; seconds: number };
+type Verdict = { winner: 'old' | 'new' | 'tie'; old: number; new: number };
+
+const args = process.argv.slice(2);
+const option = (name: string) =>
+  args.includes(`--${name}`) ? args[args.indexOf(`--${name}`) + 1] : undefined;
+const modelOf = (name: string | undefined, fallback: string) =>
+  MODELS[name ?? ''] ?? name ?? fallback;
+const readJson = <T>(file: string, empty: T): T =>
+  existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as T) : empty;
+const writeJson = (file: string, value: unknown) => {
+  mkdirSync(DIR, { recursive: true });
+  writeFileSync(file, JSON.stringify(value, null, 1));
+};
+const hash = (...parts: string[]) =>
+  createHash('sha1').update(parts.join('\u0000')).digest('hex').slice(0, 16);
+
+async function lines(fen: string): Promise<Lines> {
+  const analysis = await analyze(fen, [], undefined, undefined, ENGINE_MS);
+  return {
+    ...analysis,
+    moves: analysis.moves.map(candidate => ({
+      ...candidate,
+      ...describeLine(analysis.fen, candidate.continuation),
+    })),
+  };
+}
+
+/** Runs the engine on every question's position and on the moves it asks about. */
+async function freeze() {
+  const cases = ideaCases();
+  const after = async (fen: string, san: string) => {
+    const board = new Chess(fen);
+    board.move(san);
+    return { move: describeLine(fen, [san]).steps[0], analysis: await lines(board.fen()) };
+  };
+  const contexts = await pool(cases, 4, async (test): Promise<Context> => {
+    const fen = fenAfter(test.moves);
+    return {
+      test,
+      fen,
+      position: describePosition(fen),
+      analysis: await lines(fen),
+      afterFocus: await after(fen, test.focus!),
+      ...(test.focus !== test.keyMove && { afterKey: await after(fen, test.keyMove!) }),
+    };
+  });
+  writeJson(CONTEXTS, contexts);
+  console.log(`${contexts.length} contexts written to ${CONTEXTS}`);
+}
+
+function loadContexts(): Context[] {
+  if (!existsSync(CONTEXTS)) throw new Error('Run `npm run lab -- freeze` first');
+  const all = readJson<Context[]>(CONTEXTS, []);
+  return args.includes('--all') ? all : spread(all, SAMPLE);
+}
+
+/** The strategy's answer to every question, asked only where it is not already stored. */
+async function answers(runtime: ModelRuntime, name: string, model: string, contexts: Context[]) {
+  const strategy = STRATEGIES[name];
+  if (!strategy) throw new Error(`No strategy "${name}"; there are ${Object.keys(STRATEGIES)}`);
+  const stored = readJson<Record<string, Stored>>(ANSWERS, {});
+  let asked = 0;
+  const result = await pool(contexts, 4, async context => {
+    const message = strategy.message(context);
+    // Keyed by what is actually sent, so editing a strategy asks again and nothing else does.
+    const key = hash(model, strategy.system, message);
+    if (!stored[key]) {
+      stored[key] = await complete(runtime, model, 'medium', strategy.system, message);
+      asked++;
+      writeJson(ANSWERS, stored);
+    }
+    return { context, key, ...stored[key] };
+  });
+  const cost = result.reduce((sum, answer) => sum + answer.cost, 0);
+  console.log(
+    `${name} on ${model.split('/').pop()}: ${asked} asked, ${result.length - asked} from cache, ` +
+      `$${(cost / result.length).toFixed(4)} per answer at list price`,
+  );
+  return result;
+}
+type Answered = Awaited<ReturnType<typeof answers>>;
+
+const metricsOf = (answered: Answered) =>
+  summarizeMetrics(
+    answered.map(({ context, text }) =>
+      measure(text, context.test.rubric, context.test.focus !== context.test.keyMove),
+    ),
+  );
+
+const JUDGE_PROMPT = `You compare two chess coaches' answers to the same question against reference points taken from published annotations of the game. For each question you get the reference points and two answers, A and B.
+
+For each question:
+- Count how many reference points each answer conveys. A point counts if the answer says the same thing in any words, including through concrete moves that amount to it. It does not count if it is absent, only gestured at with a generality that would fit any position, or contradicted.
+- Say which answer conveys the reference reasoning better: "A", "B" or "tie". Prefer the one that conveys more points; between equals, the one that says nothing misleading. Length, style and engine scores are not merits.
+
+Output only JSON: [{"id": "<question id>", "a": <points A conveys>, "b": <points B conveys>, "better": "A" | "B" | "tie"}, ...] with one entry per question, in order.`;
+
+/** Head-to-head verdicts on two sets of answers to the same questions, a batch per request. */
+async function judgePairs(runtime: ModelRuntime, judge: string, old: Answered, fresh: Answered) {
+  const stored = readJson<Record<string, Verdict>>(VERDICTS, {});
+  const pairs = old.map((answer, index) => {
+    const key = hash(judge, answer.key, fresh[index].key);
+    // Which answer is shown first is fixed per pair, and balanced, so position cannot favour one.
+    const oldFirst = parseInt(key.slice(0, 2), 16) % 2 === 0;
+    return { context: answer.context, key, oldFirst, old: answer.text, fresh: fresh[index].text };
+  });
+  const pending = pairs.filter(pair => !stored[pair.key]);
+  for (let start = 0; start < pending.length; start += BATCH) {
+    const batch = pending.slice(start, start + BATCH);
+    const message = batch
+      .map(({ context, oldFirst, old: oldText, fresh: freshText }) => {
+        const [a, b] = oldFirst ? [oldText, freshText] : [freshText, oldText];
+        const points = context.test.rubric
+          .map((point, index) => `${index + 1}. ${point}`)
+          .join('\n');
+        return `## Question ${context.test.id}\n${context.test.message}\n\nReference points:\n${points}\n\n### Answer A\n${plain(a)}\n\n### Answer B\n${plain(b)}`;
+      })
+      .join('\n\n');
+    const { text } = await complete(runtime, judge, 'medium', JUDGE_PROMPT, message);
+    const rows = JSON.parse(text.slice(text.indexOf('['), text.lastIndexOf(']') + 1)) as {
+      id: string;
+      a: number;
+      b: number;
+      better: string;
+    }[];
+    for (const [index, pair] of batch.entries()) {
+      // By id where the judge kept it exactly; otherwise by position, which it was told to keep.
+      const row =
+        rows.find(item => item.id === pair.context.test.id) ??
+        (rows.length === batch.length ? rows[index] : undefined);
+      if (!row) continue;
+      const [oldPoints, newPoints] = pair.oldFirst ? [row.a, row.b] : [row.b, row.a];
+      const first = pair.oldFirst ? 'old' : 'new';
+      const second = pair.oldFirst ? 'new' : 'old';
+      stored[pair.key] = {
+        winner: row.better === 'A' ? first : row.better === 'B' ? second : 'tie',
+        old: oldPoints,
+        new: newPoints,
+      };
+    }
+    writeJson(VERDICTS, stored);
+  }
+  return pairs.map(pair => ({ ...pair, verdict: stored[pair.key] }));
+}
+
+/** Chance of a split at least this lopsided if the two were equally good (two-sided sign test). */
+function signTest(wins: number, losses: number): number {
+  const n = wins + losses;
+  const choose = (k: number) => {
+    let value = 1;
+    for (let index = 1; index <= k; index++) value = (value * (n - k + index)) / index;
+    return value;
+  };
+  let tail = 0;
+  for (let k = 0; k <= Math.min(wins, losses); k++) tail += choose(k);
+  return n ? Math.min(1, (2 * tail) / 2 ** n) : 1;
+}
+
+const [command, first, second] = args;
+if (command === 'freeze') {
+  await freeze();
+} else if (command === 'run' && first) {
+  const runtime = await ModelRuntime.create();
+  const answered = await answers(runtime, first, modelOf(option('model'), HAIKU), loadContexts());
+  console.table({ [first]: metricsOf(answered) });
+} else if (command === 'compare' && first && second) {
+  const runtime = await ModelRuntime.create();
+  const model = modelOf(option('model'), HAIKU);
+  const contexts = loadContexts();
+  const old = await answers(runtime, first, model, contexts);
+  const fresh = await answers(runtime, second, model, contexts);
+  console.table({ [first]: metricsOf(old), [second]: metricsOf(fresh) });
+
+  const judged = await judgePairs(runtime, modelOf(option('judge'), SONNET), old, fresh);
+  const verdicts = judged.flatMap(pair => pair.verdict ?? []);
+  const count = (winner: Verdict['winner']) => verdicts.filter(v => v.winner === winner).length;
+  const total = judged.reduce((sum, pair) => sum + pair.context.test.rubric.length, 0);
+  const points = (which: 'old' | 'new') => verdicts.reduce((sum, v) => sum + v[which], 0);
+  console.log(`\n${first}: ${STRATEGIES[first].about}\n${second}: ${STRATEGIES[second].about}\n`);
+  for (const { context, verdict } of judged) {
+    const mark = !verdict
+      ? '?'
+      : verdict.winner === 'new'
+        ? '+'
+        : verdict.winner === 'old'
+          ? '−'
+          : '=';
+    console.log(
+      `  ${mark} ${context.test.id.slice(5).padEnd(46)} ${verdict?.old ?? '?'} → ${verdict?.new ?? '?'} of ${context.test.rubric.length}`,
+    );
+  }
+  console.log(
+    `\n${second} better in ${count('new')}, ${first} better in ${count('old')}, ${count('tie')} ties ` +
+      `(p = ${signTest(count('new'), count('old')).toFixed(2)} that this is chance)\n` +
+      `reference points conveyed: ${points('old')} → ${points('new')} of ${total}`,
+  );
+} else if (command === 'show' && first && second) {
+  const runtime = await ModelRuntime.create();
+  const contexts = readJson<Context[]>(CONTEXTS, []).filter(context =>
+    context.test.id.includes(second),
+  );
+  const [answer] = await answers(
+    runtime,
+    first,
+    modelOf(option('model'), HAIKU),
+    contexts.slice(0, 1),
+  );
+  if (!answer) throw new Error(`No question matches "${second}"`);
+  console.log(
+    `\n${answer.context.test.message}\n\nReference:\n- ${answer.context.test.rubric.join('\n- ')}\n\n${plain(answer.text)}`,
+  );
+} else {
+  console.log(
+    'usage: npm run lab -- freeze | run <strategy> | compare <old> <new> | show <strategy> <case>',
+  );
+}
+process.exit(0);

@@ -104,6 +104,27 @@ export async function createBridgeSession(
   return session;
 }
 
+/**
+ * What a turn through the bridge would cost at the model's list price. The
+ * bridge reports none, because the turn runs on a Claude subscription.
+ */
+export function bridgedCost(
+  modelRuntime: ModelRuntime,
+  model: { provider: string; id: string },
+  usage: { input: number; output: number; cacheRead: number; cacheWrite: number },
+): number {
+  if (model.provider !== CLAUDE_BRIDGE.provider) return 0;
+  const price = modelRuntime.getModel(CLAUDE_BRIDGE.pricedAs, model.id)?.cost;
+  if (!price) return 0;
+  return (
+    (usage.input * price.input +
+      usage.output * price.output +
+      usage.cacheRead * price.cacheRead +
+      usage.cacheWrite * price.cacheWrite) /
+    1_000_000
+  );
+}
+
 const NDJSON = { 'Content-Type': 'application/x-ndjson', 'Cache-Control': 'no-cache' };
 export const eventLine = (event: ServerEvent) => JSON.stringify(event) + '\n';
 
@@ -328,7 +349,7 @@ export class ChatService {
           this.addUsage(
             conversation,
             usage.totalTokens,
-            usage.cost.total || this.bridgedCost(conversation, usage),
+            usage.cost.total || bridgedCost(this.modelRuntime, conversation.model, usage),
           );
         }
         if (stopReason === 'error') modelError = errorMessage || 'Model request failed';
@@ -382,27 +403,6 @@ export class ChatService {
     } finally {
       unsubscribe();
     }
-  }
-
-  /**
-   * What a turn through the bridge would cost at the model's list price. The
-   * bridge reports none, because the turn runs on a Claude subscription.
-   */
-  private bridgedCost(
-    conversation: Conversation,
-    usage: { input: number; output: number; cacheRead: number; cacheWrite: number },
-  ): number {
-    const { provider, id } = conversation.model;
-    if (provider !== CLAUDE_BRIDGE.provider) return 0;
-    const price = this.modelRuntime.getModel(CLAUDE_BRIDGE.pricedAs, id)?.cost;
-    if (!price) return 0;
-    return (
-      (usage.input * price.input +
-        usage.output * price.output +
-        usage.cacheRead * price.cacheRead +
-        usage.cacheWrite * price.cacheWrite) /
-      1_000_000
-    );
   }
 
   private addUsage(conversation: Conversation, tokens: number, cost: number) {

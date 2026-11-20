@@ -8,6 +8,7 @@
     "server": "tsx server/index.ts",
     "replay": "tsx server/replay.ts",
     "eval": "tsx evals/run.ts",
+    "lab": "tsx evals/lab.ts",
     "build": "vite build",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.server.json",
     "lint": "eslint .",

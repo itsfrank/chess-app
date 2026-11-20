@@ -28,16 +28,8 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import {
-  createAgentSession,
-  ModelRuntime,
-  SessionManager,
-  SettingsManager,
-} from '@earendil-works/pi-coding-agent';
-import { Chess } from 'chess.js';
+import { ModelRuntime } from '@earendil-works/pi-coding-agent';
 import type {
-  ArchivedGame,
   GameArchivePage,
   PositionEval,
   ServerEvent,
@@ -45,21 +37,32 @@ import type {
   SettingsInfo,
 } from '../shared/protocol.ts';
 import { explainPrompt, numberedMove, reviewGame } from '../shared/quality.ts';
-import { createBridgeSession, promptOnly } from '../server/chat.ts';
-import { CLAUDE_BRIDGE, DATA_DIR, PORT, splitModel } from '../server/config.ts';
+import { DATA_DIR, PORT } from '../server/config.ts';
 import { lineFacts, positionFacts } from '../server/facts.ts';
 import { EXTRACTOR_PROMPT, parseClaims, verify, type Claim, type Verdict } from './claims.ts';
 import type { Tactic } from './fetch-tactics.ts';
+import {
+  complete,
+  describe,
+  fenAfter,
+  here,
+  ideaCases,
+  pool,
+  side,
+  SONNET,
+  spread,
+  SUITES,
+  type Case,
+  type Suite,
+} from './lib.ts';
 
 const args = process.argv.slice(2);
 const option = (name: string) =>
   args.includes(`--${name}`) ? args[args.indexOf(`--${name}`) + 1] : undefined;
 /** Another backend can be measured by pointing at it, such as one running an older commit. */
 const API = option('api') ?? `http://127.0.0.1:${PORT}`;
-const here = (file: string) => fileURLToPath(new URL(file, import.meta.url));
 const DIR = join(DATA_DIR, 'evals');
 const CASES_FILE = join(DIR, 'cases.json');
-const SONNET = 'claude-bridge/claude-sonnet-5-5';
 /** One mid-priced model answers by default, so that trying a change is quick and cheap. */
 const DEFAULT_MODELS = [SONNET];
 /** `--quick` asks an evenly spread sample of each suite instead of every question. */
@@ -69,21 +72,6 @@ const flag = (name: string) => args.includes(`--${name}`);
 const EXTRACTOR = option('extractor') ?? SONNET;
 /** Says which reference points an answer conveys. */
 const JUDGE = option('judge') ?? SONNET;
-const SUITES = ['mine', 'tactics', 'ideas'] as const;
-type Suite = (typeof SUITES)[number];
-
-type Case = {
-  id: string;
-  suite: Suite;
-  /** The moves that lead to the position asked about. */
-  moves: string[];
-  playerColor: 'white' | 'black';
-  message: string;
-  /** The finished game the position is from, when it is one of the player's. */
-  game?: ArchivedGame;
-  /** What a good answer says, each point judged separately; empty when only claims are checked. */
-  rubric: string[];
-};
 type Answer = {
   case: string;
   text: string;
@@ -111,28 +99,6 @@ const json = async <T>(path: string, init?: RequestInit): Promise<T> => {
   return response.json() as Promise<T>;
 };
 const post = (body: unknown): RequestInit => ({ method: 'POST', body: JSON.stringify(body) });
-
-/** Runs `work` over `items`, a few at a time, keeping their order. */
-async function pool<T, R>(items: T[], size: number, work: (item: T) => Promise<R>): Promise<R[]> {
-  const results: R[] = [];
-  let next = 0;
-  await Promise.all(
-    Array.from({ length: size }, async () => {
-      while (next < items.length) {
-        const index = next++;
-        results[index] = await work(items[index]);
-      }
-    }),
-  );
-  return results;
-}
-
-function fenAfter(moves: string[]): string {
-  const board = new Chess();
-  for (const san of moves) board.move(san);
-  return board.fen();
-}
-const side = (ply: number): 'white' | 'black' => (ply % 2 === 0 ? 'white' : 'black');
 
 /** The player's worst moves and a best one from each of their most recent games. */
 async function chooseMine(games: number): Promise<Case[]> {
@@ -215,43 +181,6 @@ function tacticCases(): Case[] {
   });
 }
 
-type Idea = {
-  id: string;
-  /** The game up to and including the key move. */
-  moves: string[];
-  alternative: string | null;
-  ideaPoints: string[];
-  alternativePoints: string[];
-};
-
-/** Positional moves from annotated games: what the move is for, and why not the natural alternative. */
-function ideaCases(): Case[] {
-  const ideas: Idea[] = JSON.parse(readFileSync(here('./ideas.json'), 'utf8'));
-  return ideas.flatMap(idea => {
-    const before = idea.moves.slice(0, -1);
-    const mover = side(before.length);
-    const name = mover === 'white' ? 'White' : 'Black';
-    const base = { suite: 'ideas' as const, moves: before, playerColor: mover };
-    const cases: Case[] = [
-      {
-        ...base,
-        id: `idea:${idea.id}`,
-        message: `A strong player chose ${idea.moves.at(-1)} for ${name} in this position. What is the idea behind it?`,
-        rubric: idea.ideaPoints,
-      },
-    ];
-    if (idea.alternative && idea.alternativePoints.length) {
-      cases.push({
-        ...base,
-        id: `idea:${idea.id}:not-${idea.alternative}`,
-        message: `${idea.alternative} looks natural for ${name} here. Why is it not the best way to play?`,
-        rubric: idea.alternativePoints,
-      });
-    }
-    return cases;
-  });
-}
-
 type Reply = Omit<Answer, 'claims' | 'covered'>;
 /** One companion turn in a new conversation. */
 async function ask(test: Case): Promise<Reply> {
@@ -273,54 +202,6 @@ async function ask(test: Case): Promise<Reply> {
   return answer;
 }
 
-/** One reply from `modelId` to `message` under `systemPrompt`, with no tools. */
-async function complete(
-  runtime: ModelRuntime,
-  modelId: string,
-  effort: 'low' | 'medium',
-  systemPrompt: string,
-  message: string,
-): Promise<string> {
-  const { provider, id } = splitModel(modelId);
-  let session;
-  if (provider === CLAUDE_BRIDGE.provider) {
-    session = await createBridgeSession(runtime, systemPrompt);
-    const model = runtime.getModel(provider, id);
-    if (!model) throw new Error(`${modelId} is unavailable`);
-    await session.setModel(model);
-    session.setThinkingLevel(effort);
-  } else {
-    const model = runtime.getModel(provider, id);
-    if (!model) throw new Error(`${modelId} is unavailable`);
-    ({ session } = await createAgentSession({
-      modelRuntime: runtime,
-      model,
-      thinkingLevel: effort,
-      resourceLoader: promptOnly(systemPrompt),
-      tools: [],
-      customTools: [],
-      settingsManager: SettingsManager.inMemory(),
-      sessionManager: SessionManager.inMemory(),
-    }));
-  }
-  let reply = '';
-  session.subscribe(event => {
-    if (event.type === 'message_update' && event.assistantMessageEvent.type === 'text_delta')
-      reply += event.assistantMessageEvent.delta;
-  });
-  try {
-    await session.prompt(message);
-    return reply;
-  } finally {
-    session.dispose();
-  }
-}
-
-const describe = (name: string, fen: string) => {
-  const { white, black, toMove } = positionFacts(fen);
-  return `${name}: ${fen}\n  White: ${white}\n  Black: ${black}\n  ${toMove} to move`;
-};
-
 /** The claims in an answer, written down by a model and decided on the board. */
 async function checkClaims(
   runtime: ModelRuntime,
@@ -331,7 +212,7 @@ async function checkClaims(
   const snapshot = fenAfter(test.moves);
   const before = ply ? fenAfter(test.moves.slice(0, -1)) : undefined;
   const last = ply ? numberedMove(ply - 1, test.moves[ply - 1]) : '';
-  const reply = await complete(
+  const { text: reply } = await complete(
     runtime,
     EXTRACTOR,
     'low',
@@ -359,7 +240,7 @@ Output only JSON: {"covered": [true, false, ...]} with one entry per reference p
 /** Which rubric points an answer conveys, as judged by a model that is not being measured. */
 async function judge(runtime: ModelRuntime, test: Case, text: string): Promise<boolean[]> {
   if (!test.rubric.length) return [];
-  const reply = await complete(
+  const { text: reply } = await complete(
     runtime,
     JUDGE,
     'medium',
@@ -435,14 +316,8 @@ async function loadCases(suites: readonly Suite[], games: number, all = false): 
     // The same questions every time, spread over the suite, so quick runs can be compared.
     const size = all
       ? cases.length
-      : Math.min(
-          cases.length,
-          Number(option('limit')) || (flag('quick') ? QUICK[suite] : cases.length),
-        );
-    return Array.from(
-      { length: size },
-      (_, index) => cases[Math.floor((index * cases.length) / size)],
-    );
+      : Number(option('limit')) || (flag('quick') ? QUICK[suite] : cases.length);
+    return spread(cases, size);
   });
 }
 

@@ -227,7 +227,8 @@ Recordings with an interrupted turn are rejected.
 ## Development
 
 ```sh
-npm run eval -- <label>   # measure false board claims in the companion's answers (see below)
+npm run lab -- compare current ideas   # cheap loop for trying ways to explain ideas (see below)
+npm run eval -- <label>   # measure the companion's answers end to end (see below)
 npm run check        # type-check, lint, format check and unit tests
 npm run format       # apply Prettier
 npm run build        # production build of the frontend
@@ -280,7 +281,20 @@ solution or the published annotations, and a judge model says which of them the 
 Sonnet also grades by default (`--extractor` and `--judge` change that), and
 `npm run eval -- regrade <label>` grades the stored answers of an earlier run again.
 
-To try a change to the companion cheaply: restart the backend, run
+**The lab** (`npm run lab`) is the inner loop for improving how the companion explains ideas. It
+needs no backend. `npm run lab -- freeze` runs the engine once on every positional question and
+keeps the result; a strategy in `evals/strategies.ts` then turns that frozen context into a single
+model request, so trying an idea costs one request per question and no engine time.
+`npm run lab -- compare <old> <new>` answers a dozen questions with each strategy (Claude Haiku
+unless `--model sonnet`; answers are cached by what was sent), prints free metrics for both (words,
+engine scores quoted, answers that lead with a score, reference squares mentioned, answers that
+dispute the question's premise), and has a judge compare each pair of answers unlabelled in one
+request, reporting wins, losses and the chance the split is luck. `--all` uses all 31 questions,
+`run <strategy>` answers without judging, and `show <strategy> <case>` prints one answer beside
+its reference points. What wins in the lab should be confirmed with the full eval below, which
+goes through the backend with real tool calls.
+
+To try a change to the companion end to end: restart the backend, run
 `npm run eval -- <label> --quick`, and compare with the previous label. `--quick` asks a fixed
 sample of 24 questions (6 of your games, 6 tactics, 12 ideas) instead of all 75, which is 24
 answers and 42 grading requests; `--suites ideas --no-claims` narrows it to the 12 positional
