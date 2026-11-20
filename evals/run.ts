@@ -7,18 +7,24 @@
  * - `tactics`: multi-move tactics from Lichess puzzles (`tactics.json`).
  * - `ideas`: positional moves from annotated master games (`ideas.json`),
  *   asked both as "what is the idea" and "why not the natural alternative".
+ * - `tutor`: what a coach is asked about club players' games (`tutor.json`):
+ *   why the player's worst move was bad and what they missed, and what to aim
+ *   for in a quiet position, with reference points worked out by the engine.
+ * - `coach`: the same kinds of question on readers' games that a master
+ *   annotated, with his points as the reference. Built locally and never
+ *   committed (see `coachCases`); empty where it has not been built.
  *
  * Every answer has its concrete board claims extracted and decided by the
- * rules of chess (see claims.ts). Tactics and ideas also have reference
+ * rules of chess (see claims.ts). Tactics, ideas and tutor also have reference
  * points, and a judge model says which of them the answer conveys.
  *
- *   npm run eval -- <label> [--quick] [--suites mine,tactics,ideas] [--models a,b,c]
+ *   npm run eval -- <label> [--quick] [--suites mine,tactics,ideas,tutor,coach] [--models a,b,c]
  *   npm run eval -- <label> --quick --suites ideas --no-claims     the cheapest loop for ideas
  *   npm run eval -- regrade <label>                 grade stored answers again
  *   npm run eval -- compare <label> <label>
  *
  * By default Claude Sonnet, through the bridge, both answers and grades (`--models`,
- * `--extractor`, `--judge`). `--quick` asks a fixed sample of 24 questions instead of all 75,
+ * `--extractor`, `--judge`). `--quick` asks a fixed sample of each suite instead of all of it,
  * `--limit N` caps each suite at N, and `--no-claims` skips claim checking. To try a change
  * to the companion: restart the backend, run with a new label, and compare with the last one.
  *
@@ -46,8 +52,10 @@ import {
   describe,
   fenAfter,
   here,
+  coachCases,
   ideaCases,
   pool,
+  tutorCases,
   side,
   SONNET,
   spread,
@@ -66,7 +74,7 @@ const CASES_FILE = join(DIR, 'cases.json');
 /** One mid-priced model answers by default, so that trying a change is quick and cheap. */
 const DEFAULT_MODELS = [SONNET];
 /** `--quick` asks an evenly spread sample of each suite instead of every question. */
-const QUICK = { mine: 6, tactics: 6, ideas: 12 };
+const QUICK = { mine: 6, tactics: 6, ideas: 12, tutor: 12, coach: 12 };
 const flag = (name: string) => args.includes(`--${name}`);
 /** Writes down the claims in an answer; whether they are true is then decided by the rules. */
 const EXTRACTOR = option('extractor') ?? SONNET;
@@ -229,7 +237,7 @@ async function checkClaims(
   return parseClaims(reply).map(claim => ({ ...claim, verdict: verify(claim, snapshot, before) }));
 }
 
-const JUDGE_PROMPT = `You grade a chess coach's answer against reference points taken from published annotations or from the solution of a puzzle. For each reference point decide whether the answer conveys its substance.
+const JUDGE_PROMPT = `You grade a chess coach's answer against reference points taken from published annotations, from the solution of a puzzle, or worked out from the board and an engine. For each reference point decide whether the answer conveys its substance.
 
 - A point is covered if the answer says the same thing in any words, including by giving the concrete moves that amount to it. It need not use the reference's terms.
 - A point is not covered if the answer omits it, only gestures at it with a generality that would fit any position, or says something that contradicts it.
@@ -310,6 +318,8 @@ async function loadCases(suites: readonly Suite[], games: number, all = false): 
     mine: () => JSON.parse(readFileSync(CASES_FILE, 'utf8')) as Case[],
     tactics: tacticCases,
     ideas: ideaCases,
+    tutor: tutorCases,
+    coach: coachCases,
   };
   return suites.flatMap(suite => {
     const cases = bySuite[suite]();
@@ -323,6 +333,24 @@ async function loadCases(suites: readonly Suite[], games: number, all = false): 
 
 const save = (results: Results) =>
   writeFileSync(join(DIR, `${results.label}.json`), JSON.stringify(results, null, 2));
+
+/**
+ * Has the backend review each game that goes with a question and is not one of the player's,
+ * so that the companion sees the engine review as it would in the app.
+ */
+async function reviewGames(cases: Case[]) {
+  const games = [
+    ...new Map(
+      cases
+        .filter(test => test.suite !== 'mine' && test.game)
+        .map(test => [test.game!.url, test.game!]),
+    ).values(),
+  ];
+  await pool(games, 2, async game => {
+    const response = await fetch(`${API}/api/games/review`, post({ moves: game.moves }));
+    await response.text();
+  });
+}
 
 /** Extracts and checks the claims of every answer and judges it against its reference points. */
 async function grade(runtime: ModelRuntime, cases: Case[], answers: Reply[]): Promise<Answer[]> {
@@ -349,6 +377,7 @@ async function run(label: string, models: string[], suites: Suite[], games: numb
   console.log(`${cases.length} questions: ${counts.join(', ')}`);
   console.log(`per model: ${cases.length} answers and ${gradings} grading requests`);
 
+  await reviewGames(cases);
   const runtime = await ModelRuntime.create();
   const original = (await json<SettingsInfo>('/api/settings')).settings;
   const use = (changes: Partial<Settings>) =>
@@ -395,7 +424,7 @@ else if (command === 'regrade') {
   process.exit(0);
 } else if (!command || command.startsWith('--')) {
   console.log(
-    'usage: npm run eval -- <label> [--quick] [--suites mine,tactics,ideas] [--models a,b]',
+    'usage: npm run eval -- <label> [--quick] [--suites mine,tactics,ideas,tutor,coach] [--models a,b]',
   );
 } else {
   await run(

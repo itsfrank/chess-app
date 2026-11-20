@@ -267,17 +267,29 @@ each engine line what the move takes, attacks, uncovers and leaves loose. Its pr
 take such statements from the facts or not make them.
 
 `npm run eval -- <label>` measures the companion's answers. With the backend running, it asks a
-model (Claude Sonnet 5.5 unless `--models` says otherwise) three kinds of question:
+model (Claude Sonnet 5.5 unless `--models` says otherwise) these kinds of question:
 
 - **mine**: explain the worst and best moves of your most recent games, as the Explain button does;
 - **tactics**: 20 multi-move tactics from the Lichess puzzle database (`evals/tactics.json`), half
   of them forks that only work after a preparatory move;
 - **ideas**: 31 questions on positional moves from annotated master games (`evals/ideas.json`,
-  with sources), asked as "what is the idea of this move" and "why not the natural alternative".
+  with sources), asked as "what is the idea of this move" and "why not the natural alternative";
+- **tutor**: what a coach is asked about a club player's game (`evals/tutor.json`, 37 questions
+  from Lichess rapid games between 1300–1800 players, CC0): "why was my move bad and what did I
+  miss" at the player's worst move, and "what should my plan be" in a quiet middlegame position.
+  Reference points are worked out by `evals/fetch-tutor.ts` from Stockfish and the board facts:
+  what was missed (a reply the move allowed, a threat already there, found by letting the player
+  pass, or a win not taken), a better move, and a habit that fits; for plans, the engine's close
+  choices, the positional features its line changes and what the opponent wants;
+- **coach**: the same kinds of question on readers' games annotated by a master, with his points
+  as the reference. The annotations are copyrighted, so these questions are built locally into
+  `.data/evals/gold/coach.json` and never committed; without that file the suite is empty.
 
 Every answer has its concrete board claims written down by a model and decided by the rules of
-chess (`evals/claims.ts`). Tactics and ideas also have reference points, taken from the puzzle's
-solution or the published annotations, and a judge model says which of them the answer conveys.
+chess (`evals/claims.ts`). The other suites also have reference points, taken from the puzzle's
+solution, published annotations or the engine, and a judge model says which of them the answer
+conveys. Before asking about a game that is not yours, the runner has the backend review it, so
+the companion sees the engine review as in the app; at depth 16 that takes a while the first time.
 Sonnet also grades by default (`--extractor` and `--judge` change that), and
 `npm run eval -- regrade <label>` grades the stored answers of an earlier run again.
 
@@ -304,8 +316,7 @@ goes through the backend with real tool calls.
 
 To try a change to the companion end to end: restart the backend, run
 `npm run eval -- <label> --quick`, and compare with the previous label. `--quick` asks a fixed
-sample of 24 questions (6 of your games, 6 tactics, 12 ideas) instead of all 75, which is 24
-answers and 42 grading requests; `--suites ideas --no-claims` narrows it to the 12 positional
+sample of each suite (6 of your games, 6 tactics, 12 ideas, 12 tutor, 12 coach) instead of all; `--suites ideas --no-claims` narrows it to the 12 positional
 questions with one grading request each, and `--limit N` caps every suite at N. The report gives, per model and suite, the share of reference points
 covered, false claims, seconds and estimated cost per answer. Results go to
 `.data/evals/<label>.json`; the questions from your own games are fixed in `.data/evals/cases.json`

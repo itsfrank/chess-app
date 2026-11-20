@@ -1,5 +1,6 @@
 /** What the eval runner and the strategy lab share: questions, model calls and small helpers. */
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   createAgentSession,
@@ -9,14 +10,15 @@ import {
 } from '@earendil-works/pi-coding-agent';
 import { Chess } from 'chess.js';
 import type { ArchivedGame } from '../shared/protocol.ts';
+import type { TutorGame } from './fetch-tutor.ts';
 import { bridgedCost, createBridgeSession, promptOnly } from '../server/chat.ts';
-import { CLAUDE_BRIDGE, splitModel } from '../server/config.ts';
+import { CLAUDE_BRIDGE, DATA_DIR, splitModel } from '../server/config.ts';
 import { positionFacts } from '../server/facts.ts';
 
 export const SONNET = 'claude-bridge/claude-sonnet-5-5';
 export const HAIKU = 'claude-bridge/claude-haiku-5-5';
 export const OPUS = 'claude-bridge/claude-opus-5-5';
-export const SUITES = ['mine', 'tactics', 'ideas'] as const;
+export const SUITES = ['mine', 'tactics', 'ideas', 'tutor', 'coach'] as const;
 export type Suite = (typeof SUITES)[number];
 
 export type Case = {
@@ -108,6 +110,55 @@ export function ideaCases(): Case[] {
     }
     return cases;
   });
+}
+
+/**
+ * A coach's questions on club players' games (`tutor.json`): why the player's worst move was
+ * bad and what they missed, and what to aim for in a quiet position. The game goes with each
+ * question as the game under review, with the players' names left out.
+ */
+export function tutorCases(): Case[] {
+  const games: TutorGame[] = JSON.parse(readFileSync(here('./tutor.json'), 'utf8'));
+  return games.flatMap(game => {
+    const mine = game.playerColor;
+    const player = (color: 'white' | 'black') => ({
+      name: color === mine ? 'You' : 'Opponent',
+      rating: color === 'white' ? game.whiteElo : game.blackElo,
+    });
+    const archived: ArchivedGame = {
+      white: player('white'),
+      black: player('black'),
+      result: game.result,
+      termination:
+        game.result === '1/2-1/2' ? 'Drawn' : `${game.result === '1-0' ? 'White' : 'Black'} won`,
+      timeClass: 'rapid',
+      timeControl: game.timeControl,
+      opening: game.opening,
+      playedAt: game.playedAt,
+      moves: game.moves,
+      url: game.source,
+      playerColor: mine,
+    };
+    return game.cases.map(test => ({
+      id: `tutor:${game.id}:${test.category ?? test.kind}:${test.ply}`,
+      suite: 'tutor' as const,
+      moves: game.moves.slice(0, test.ply),
+      playerColor: mine,
+      message: test.message,
+      game: archived,
+      rubric: test.rubric,
+    }));
+  });
+}
+
+/**
+ * Questions on club players' games with reference points from a master's annotations. The
+ * annotations are copyrighted, so the questions are built locally into `.data/evals/gold/coach.json`
+ * and never committed; without that file the suite is empty.
+ */
+export function coachCases(): Case[] {
+  const file = join(DATA_DIR, 'evals', 'gold', 'coach.json');
+  return existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as Case[]) : [];
 }
 
 export type Completion = { text: string; tokens: number; cost: number; seconds: number };
