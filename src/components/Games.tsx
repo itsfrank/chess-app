@@ -2,7 +2,14 @@ import { useCallback, useEffect, useEffectEvent, useMemo, useState, type ReactNo
 import type { Square } from 'chess.js';
 import type { Annotation, ArchivedGame, PlayerColor } from '../../shared/protocol';
 import type { Trace } from '../../shared/habits';
-import { explainPrompt, numberedMove, QUALITIES, type QualityId } from '../../shared/quality';
+import {
+  coachDebriefPrompt,
+  explainPrompt,
+  numberedMove,
+  QUALITIES,
+  turningPoints,
+  type QualityId,
+} from '../../shared/quality';
 import { analysisArrows } from '../analysis';
 import { gamePositions, replay, sanForMove, type PositionInfo, type Promotion } from '../chess';
 import { useAnalysis } from '../hooks/useAnalysis';
@@ -24,6 +31,7 @@ import {
 import { AnalysisPanel, EvalBar, evalLabel } from './AnalysisPanel';
 import { Board, type SquareBadge } from './Board';
 import { Chat } from './Chat';
+import { CoachReviewCard, type CoachSession } from './CoachReviewCard';
 import { Icon } from './Icon';
 import type { Highlight, PlayVariation } from './Message';
 import { HistoryNavigation, MoveList, type MoveMark } from './MoveHistory';
@@ -86,6 +94,8 @@ function GameReview(props: {
   const [cursor, setCursor] = useState<ReviewCursor>({ ply: 0, sideline: null });
   /** Sideline positions visited in this review so chat headings and variations can jump back to them. */
   const [savedLines, setSavedLines] = useState<Map<string, SavedLine>>(() => new Map());
+  /** Active guided "Think First" review across the player's key turning points; null in free review. */
+  const [coachSession, setCoachSession] = useState<CoachSession | null>(null);
   const [flipped, setFlipped] = useState(game?.playerColor === 'black');
   /** The companion's arrows and the position they were drawn for. */
   const [annotation, setAnnotation] = useState({ fen: '', arrows: NO_ARROWS });
@@ -113,6 +123,16 @@ function GameReview(props: {
   const analysed = useGameReview(moves);
   const { review } = analysed;
   const repertoire = useRepertoireTrace(game);
+  const keyMoments = useMemo(
+    () => (game ? turningPoints(moves, review, game.playerColor) : []),
+    [game, moves, review],
+  );
+  const activePoint =
+    coachSession && coachSession.step < coachSession.points.length
+      ? coachSession.points[coachSession.step]
+      : null;
+  const spoilersHidden = Boolean(activePoint && coachSession?.phase === 'think');
+
   /** The verdict on each move, for the move list and the board. */
   const marks = useMemo(
     () =>
@@ -136,8 +156,15 @@ function GameReview(props: {
       }),
     [review, moves],
   );
+  const visibleMarks = useMemo(
+    () =>
+      spoilersHidden && activePoint
+        ? marks.map((mark, index) => (index >= activePoint.index ? undefined : mark))
+        : marks,
+    [marks, spoilersHidden, activePoint],
+  );
   const lastMove = shownGame.history({ verbose: true }).at(-1);
-  const shownReview = inSideline ? undefined : review.moves[mainlinePly - 1];
+  const shownReview = inSideline || spoilersHidden ? undefined : review.moves[mainlinePly - 1];
   const badge: SquareBadge | undefined =
     lastMove && shownReview
       ? {
@@ -201,8 +228,75 @@ function GameReview(props: {
     if (!game) return false;
     const san = sanForMove(shownGame, from, to, promotion);
     if (!san) return false;
+    if (spoilersHidden && activePoint && mainlinePly === activePoint.index && !inSideline) {
+      setCoachSession(previous => (previous ? { ...previous, attempt: san } : previous));
+      applyCursor({
+        ply: activePoint.index,
+        sideline: { anchor: activePoint.index, moves: [san], offset: 1 },
+      });
+      return true;
+    }
     applyCursor(playMoveInReview(moves, cursor, san));
     return true;
+  };
+
+  const startCoachReview = () => {
+    if (!keyMoments.length) return;
+    setCoachSession({
+      points: keyMoments,
+      step: 0,
+      phase: 'think',
+      attempt: null,
+      note: '',
+      hits: 0,
+    });
+    selectMainlinePly(keyMoments[0].index);
+  };
+
+  const resetCoachAttempt = () => {
+    if (!activePoint) return;
+    setCoachSession(previous => (previous ? { ...previous, attempt: null } : previous));
+    selectMainlinePly(activePoint.index);
+  };
+
+  const revealCoachPoint = (withAttempt: boolean) => {
+    if (!game || !coachSession || !activePoint) return;
+    const attempt = withAttempt ? coachSession.attempt : null;
+    const note = withAttempt ? coachSession.note : '';
+    const hit = Boolean(attempt && activePoint.best && attempt === activePoint.best);
+    const before = moves.slice(0, activePoint.index);
+    setCoachSession({
+      ...coachSession,
+      phase: 'revealed',
+      attempt,
+      hits: coachSession.hits + (hit ? 1 : 0),
+    });
+    selectMainlinePly(activePoint.index);
+    const label = attempt
+      ? `Tried ${numberedMove(activePoint.index, attempt)}${note.trim() ? ` — ${note.trim()}` : ''}`
+      : `Reveal ${numberedMove(activePoint.index, activePoint.played)}`;
+    chat.ask(
+      coachDebriefPrompt(activePoint, attempt, note),
+      { fen: replay(before).fen(), moves: before },
+      game.playerColor,
+      game,
+      label,
+    );
+  };
+
+  const nextCoachPoint = () => {
+    if (!coachSession) return;
+    const nextStep = coachSession.step + 1;
+    setCoachSession({
+      ...coachSession,
+      step: nextStep,
+      phase: 'think',
+      attempt: null,
+      note: '',
+    });
+    if (nextStep < coachSession.points.length) {
+      selectMainlinePly(coachSession.points[nextStep].index);
+    }
   };
 
   const playVariation = useCallback<PlayVariation>(
@@ -294,7 +388,12 @@ function GameReview(props: {
     <main className={`games${movesOpen ? ' moves-open' : ''}`}>
       <div className="workspace">
         {movesOpen && (
-          <MoveList moves={moves} ply={mainlinePly} onSelect={selectMainlinePly} marks={marks} />
+          <MoveList
+            moves={moves}
+            ply={mainlinePly}
+            onSelect={selectMainlinePly}
+            marks={visibleMarks}
+          />
         )}
         <section className="board-section" aria-label="Game under review">
           <div className="stage">
@@ -305,24 +404,33 @@ function GameReview(props: {
               flipped={flipped}
               interactive={!!game}
               onMove={moveOnBoard}
-              arrows={annotation.fen === shownFen ? annotation.arrows : NO_ARROWS}
-              activeArrow={activeArrow}
+              arrows={
+                !spoilersHidden && annotation.fen === shownFen ? annotation.arrows : NO_ARROWS
+              }
+              activeArrow={spoilersHidden ? null : activeArrow}
               badge={badge}
               candidates={
-                analysis.showArrows ? analysisArrows(shownFen, analysis.candidates) : NO_ARROWS
+                !spoilersHidden && analysis.showArrows
+                  ? analysisArrows(shownFen, analysis.candidates)
+                  : NO_ARROWS
               }
-              evalBar={<EvalBar score={analysis.engine.data?.evaluation} flipped={flipped} />}
+              evalBar={
+                <EvalBar
+                  score={spoilersHidden ? undefined : analysis.engine.data?.evaluation}
+                  flipped={flipped}
+                />
+              }
             />
             <div className="player">
               {seat(flipped ? 'black' : 'white')}
               <span className="label evaluation" title="Stockfish evaluation, from White's side">
-                {evalLabel(analysis.engine)}
+                {spoilersHidden ? 'Hidden' : evalLabel(analysis.engine)}
               </span>
               <strong className="game-status" role="status" title={outcome}>
-                {inSideline ? 'Exploring sideline' : outcome}
+                {spoilersHidden ? 'Think first' : inSideline ? 'Exploring sideline' : outcome}
               </strong>
             </div>
-            {cursor.sideline && (
+            {cursor.sideline && !spoilersHidden && (
               <div className="sideline-bar" role="region" aria-label="Exploratory variation">
                 <span className="label">Line</span>
                 <div className="sideline-moves">
@@ -392,29 +500,50 @@ function GameReview(props: {
                       {game.opening && ` · ${game.opening}`}
                     </span>
                   </div>
-                  <ReviewSummary
-                    game={game}
-                    analysed={analysed}
-                    shown={inSideline ? undefined : marks[mainlinePly - 1]}
-                    inSideline={inSideline}
-                    onExplain={explainMove}
-                    onBackToGame={backToGame}
-                  />
-                  {repertoire && (
+                  {coachSession ? (
+                    <CoachReviewCard
+                      session={coachSession}
+                      onNoteChange={note =>
+                        setCoachSession(previous => (previous ? { ...previous, note } : previous))
+                      }
+                      onResetAttempt={resetCoachAttempt}
+                      onReveal={revealCoachPoint}
+                      onNext={nextCoachPoint}
+                      onJumpToPoint={plyIndex => {
+                        setCoachSession(null);
+                        selectMainlinePly(plyIndex);
+                      }}
+                      onExit={() => setCoachSession(null)}
+                    />
+                  ) : (
+                    <ReviewSummary
+                      game={game}
+                      analysed={analysed}
+                      shown={inSideline ? undefined : marks[mainlinePly - 1]}
+                      inSideline={inSideline}
+                      turningPointCount={keyMoments.length}
+                      onStartCoachReview={startCoachReview}
+                      onExplain={explainMove}
+                      onBackToGame={backToGame}
+                    />
+                  )}
+                  {repertoire && !spoilersHidden && (
                     <RepertoireNote {...repertoire} moves={moves} onSelectPly={selectMainlinePly} />
                   )}
-                  <AnalysisPanel
-                    analysis={analysis}
-                    fen={shownFen}
-                    onPlayLine={playLineFromCurrent}
-                  />
+                  {!spoilersHidden && (
+                    <AnalysisPanel
+                      analysis={analysis}
+                      fen={shownFen}
+                      onPlayLine={playLineFromCurrent}
+                    />
+                  )}
                 </>
               }
               fen={shownFen}
               positions={allPositions}
               onSelectPly={selectMainlinePly}
               onSelectFen={selectFen}
-              onPlayVariation={playVariation}
+              onPlayVariation={spoilersHidden ? undefined : playVariation}
               onAsk={message =>
                 chat.ask(message, { fen: shownFen, moves: shownMoves }, game.playerColor, game)
               }
@@ -436,11 +565,13 @@ function GameReview(props: {
         fen={shownFen}
         usage={chat.usage}
         notice={
-          inSideline
-            ? 'Exploring a sideline. Drag pieces to continue or press Esc to return to the game.'
-            : game
-              ? `${game.white.name} against ${game.black.name}. Drag any piece to explore a sideline.`
-              : outcome
+          spoilersHidden
+            ? 'Think first: play your candidate move on the board before revealing Stockfish.'
+            : inSideline
+              ? 'Exploring a sideline. Drag pieces to continue or press Esc to return to the game.'
+              : game
+                ? `${game.white.name} against ${game.black.name}. Drag any piece to explore a sideline.`
+                : outcome
         }
       />
     </main>
@@ -483,11 +614,22 @@ function ReviewSummary(props: {
   analysed: ReturnType<typeof useGameReview>;
   shown: MoveMark | undefined;
   inSideline: boolean;
+  turningPointCount: number;
+  onStartCoachReview: () => void;
   /** Asks the companion about the shown move. */
   onExplain: () => void;
   onBackToGame: () => void;
 }) {
-  const { game, analysed, shown, inSideline, onExplain, onBackToGame } = props;
+  const {
+    game,
+    analysed,
+    shown,
+    inSideline,
+    turningPointCount,
+    onStartCoachReview,
+    onExplain,
+    onBackToGame,
+  } = props;
   const { review, error, retry: onRetry, stale, depth } = analysed;
   const complete = review.done === game.moves.length && !analysed.refreshing;
   return (
@@ -523,36 +665,48 @@ function ReviewSummary(props: {
           ))}
         </tbody>
       </table>
-      <p role="status">
-        {error ? (
-          <>
-            {error} <button onClick={onRetry}>Retry</button>
-          </>
-        ) : analysed.refreshing ? (
-          `Re-analysing at depth ${depth}… ${stale} positions left`
-        ) : !complete ? (
-          `Reviewing the game with Stockfish… ${review.done} / ${game.moves.length} moves`
-        ) : inSideline ? (
-          <>
-            Exploring a sideline.{' '}
-            <button type="button" onClick={onBackToGame}>
-              Back to game
-            </button>
-          </>
-        ) : shown ? (
-          <>
-            <span className={shown.className}>{shown.title}</span>{' '}
-            <button
-              onClick={onExplain}
-              title="Go back to the position before this move and ask the companion to explain it"
-            >
-              Explain
-            </button>
-          </>
-        ) : (
-          'Step through the game or drag a piece to explore a sideline.'
+      <div className="review-status-row">
+        <p role="status">
+          {error ? (
+            <>
+              {error} <button onClick={onRetry}>Retry</button>
+            </>
+          ) : analysed.refreshing ? (
+            `Re-analysing at depth ${depth}… ${stale} positions left`
+          ) : !complete ? (
+            `Reviewing the game with Stockfish… ${review.done} / ${game.moves.length} moves`
+          ) : inSideline ? (
+            <>
+              Exploring a sideline.{' '}
+              <button type="button" onClick={onBackToGame}>
+                Back to game
+              </button>
+            </>
+          ) : shown ? (
+            <>
+              <span className={shown.className}>{shown.title}</span>{' '}
+              <button
+                onClick={onExplain}
+                title="Go back to the position before this move and ask the companion to explain it"
+              >
+                Explain
+              </button>
+            </>
+          ) : (
+            'Step through the game or drag a piece to explore a sideline.'
+          )}
+        </p>
+        {complete && turningPointCount > 0 && (
+          <button
+            type="button"
+            className="coach-start"
+            title="Walk through your key turning points without engine spoilers first"
+            onClick={onStartCoachReview}
+          >
+            Coach review ({turningPointCount})
+          </button>
         )}
-      </p>
+      </div>
       {complete && stale > 0 && (
         <p className="depth-warning">
           <span>

@@ -1050,6 +1050,119 @@ button.finding-eval {
   text-decoration: underline;
   text-underline-offset: 3px;
 }
+.review-status-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0 8px;
+}
+.coach-start,
+.coach-primary {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  border-radius: 4px;
+  color: var(--canvas);
+  background: var(--gold);
+  font: 600 12.5px/1.4 var(--sans);
+}
+.coach-start:hover,
+.coach-primary:hover {
+  background: #e8d6a4;
+}
+
+/* Guided "Think First" coach review card */
+.coach-card {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  background: #1b1814;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+}
+.coach-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.coach-card-head .coach-link {
+  margin-left: auto;
+}
+.coach-tag {
+  font: 600 11px/1.4 var(--sans);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--quality);
+}
+.coach-prompt,
+.coach-verdict,
+.coach-summary-text {
+  font: 15.5px/1.45 var(--serif);
+  color: var(--ink);
+}
+.coach-hit {
+  color: #86b86b;
+}
+.coach-attempt-form {
+  display: grid;
+  gap: 8px;
+}
+.coach-attempt-row,
+.coach-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12.5px;
+  color: var(--soft);
+}
+.coach-hint {
+  font-size: 12px;
+  color: var(--muted);
+}
+.coach-idea-row {
+  display: flex;
+  gap: 8px;
+}
+.coach-idea-row input {
+  flex: 1;
+  min-width: 0;
+  font: 13.5px/1.4 var(--sans);
+  padding: 5px 8px;
+  color: var(--ink);
+  background: var(--canvas);
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+}
+.coach-idea-row input::placeholder {
+  color: var(--faint);
+}
+.coach-link {
+  font-size: 12.5px;
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.coach-link:hover {
+  color: var(--gold);
+}
+.coach-moment-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.coach-chip {
+  padding: 3px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--quality, var(--ink));
+}
+.coach-chip:hover {
+  background: #ffffff0a;
+}
 
 /* The player's own games against the repertoire */
 .repertoire-trace {

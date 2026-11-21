@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import type { PositionEval } from './protocol.ts';
-import { reviewGame, reviewMove, winChance } from './quality.ts';
+import { coachDebriefPrompt, reviewGame, reviewMove, turningPoints, winChance } from './quality.ts';
 
 const cp = (value: number, best: string | null = 'x'): PositionEval => ({
   evaluation: { type: 'cp', value },
@@ -105,4 +105,37 @@ it('reviews a game as far as the evaluations go', () => {
   expect(partial.moves[2]).toBeUndefined();
   expect(partial.white.accuracy).toBeCloseTo(100, 2);
   expect(reviewGame(moves, evals.slice(0, 1)).white.accuracy).toBeNull();
+});
+
+it('selects the player’s biggest turning points in chronological order', () => {
+  // 8 plies = 4 White moves (indices 0, 2, 4, 6) and 4 Black moves (indices 1, 3, 5, 7)
+  const moves = ['e4', 'e5', 'Qh5', 'Nc6', 'Bc4', 'g6', 'Qf3', 'Nf6'];
+  const evals = [
+    cp(20, 'e4'),
+    cp(20, 'e5'), // after 1. e4 (best)
+    cp(20, 'Nf3'), // after 1... e5
+    cp(-80, 'Nc6'), // after 2. Qh5 (White lost ~9% -> inaccuracy)
+    cp(-80, 'Nf3'), // after 2... Nc6
+    cp(-450, 'g6'), // after 3. Bc4 (White blundered big)
+    cp(-450, 'Qf3'), // after 3... g6
+    cp(-120, 'Bg7'), // after 4. Qf3 (White gained, 0 loss)
+    cp(200, 'd3'), // after 4... Nf6 (Black blundered)
+  ];
+  const review = reviewGame(moves, evals);
+  const whitePoints = turningPoints(moves, review, 'white', 1);
+  expect(whitePoints).toHaveLength(1);
+  expect(whitePoints[0]).toMatchObject({ index: 4, played: 'Bc4', best: 'Nf3' });
+
+  // Requesting up to 5 returns both White errors in chronological order (index 2 then 4).
+  const allWhite = turningPoints(moves, review, 'white', 5);
+  expect(allWhite.map(p => p.index)).toEqual([2, 4]);
+
+  // Black's only error is at index 7.
+  const blackPoints = turningPoints(moves, review, 'black', 5);
+  expect(blackPoints.map(p => p.index)).toEqual([7]);
+
+  const prompt = coachDebriefPrompt(allWhite[0], 'Nf3', 'I wanted to develop fast');
+  expect(prompt).toContain('Nf3');
+  expect(prompt).toContain('I wanted to develop fast');
+  expect(prompt).toContain('2. Qh5');
 });

@@ -163,3 +163,88 @@ export function explainPrompt(
         : `The engine review labels it ${review.quality.label} and prefers ${review.best}. Using Stockfish from this position, compare the two: where does each lead, and what did the move played miss or allow? Draw one arrow for the move played and one for the engine's choice.`;
   return `From this position ${mine ? 'I' : 'my opponent'} played ${numberedMove(index, moves[index])}. ${verdict}`;
 }
+
+/** One critical decision by the reviewed player: the position before `moves[index]`. */
+export type TurningPoint = {
+  /** 0-based half-move index in `moves` (so the board before this decision is at `ply = index`). */
+  index: number;
+  /** The SAN move the player actually played in the game. */
+  played: string;
+  /** Stockfish's preferred SAN move in that position. */
+  best: string | null;
+  review: MoveReview;
+};
+
+/**
+ * Picks up to `max` biggest mistakes by `playerColor` (win-chance loss > ERROR_LOSS),
+ * ranked by loss descending and returned in chronological order.
+ */
+export function turningPoints(
+  moves: readonly string[],
+  review: GameReview,
+  playerColor: PlayerColor,
+  max = 5,
+): TurningPoint[] {
+  const parity = playerColor === 'white' ? 0 : 1;
+  const candidates: TurningPoint[] = [];
+  for (let index = 0; index < moves.length; index++) {
+    if (index % 2 !== parity) continue;
+    const moveReview = review.moves[index];
+    if (!moveReview || moveReview.loss <= ERROR_LOSS) continue;
+    if (moveReview.quality.id === 'book') continue;
+    candidates.push({
+      index,
+      played: moves[index],
+      best: moveReview.best,
+      review: moveReview,
+    });
+  }
+  return candidates
+    .sort((a, b) => b.review.loss - a.review.loss || a.index - b.index)
+    .slice(0, max)
+    .sort((a, b) => a.index - b.index);
+}
+
+/**
+ * Builds the coach debrief prompt sent from the position before `point.played`
+ * after the player commits to a candidate move (or reveals without guessing).
+ */
+export function coachDebriefPrompt(
+  point: TurningPoint,
+  attempt: string | null,
+  note: string,
+): string {
+  const gameMove = numberedMove(point.index, point.played);
+  const label = point.review.quality.label.toLowerCase();
+  const bestText = point.best ? `The engine prefers ${point.best}.` : '';
+  const trimmedNote = note.trim();
+  const reason = trimmedNote ? ` My thinking: "${trimmedNote}".` : '';
+
+  if (!attempt) {
+    return (
+      `During guided review I skipped guessing here. In the game I played ${gameMove} (${label}). ` +
+      `${bestText} Using diagnose_move and Stockfish from this position, explain concretely why ${point.played} went wrong, ` +
+      `what ${point.best ?? 'the best move'} achieves instead, and draw arrows for both.`
+    );
+  }
+  if (point.best && attempt === point.best) {
+    return (
+      `During guided review I tried ${attempt} here (which matches the engine's top choice).${reason} ` +
+      `In the game I had played ${gameMove} (${label}). Using diagnose_move on ${point.played} and Stockfish, ` +
+      `confirm why ${attempt} works (addressing my reasoning if given), contrast it with what ${point.played} missed or allowed, ` +
+      `and draw arrows for both.`
+    );
+  }
+  if (attempt === point.played) {
+    return (
+      `During guided review I tried ${attempt} again — the same ${label} I played in the game (${gameMove}).${reason} ` +
+      `${bestText} Address my thinking directly first, use diagnose_move on ${point.played} to show the concrete refutation or downside, ` +
+      `and compare it with ${point.best ?? 'the engine choice'} with arrows for both.`
+    );
+  }
+  return (
+    `During guided review I tried ${attempt} instead of my game move ${gameMove} (${label}).${reason} ` +
+    `${bestText} Address my reasoning directly first, evaluate my try ${attempt} alongside ${point.played} and ${point.best ?? 'the best move'} ` +
+    `using diagnose_move and analyze_position, and draw clear arrows on this position.`
+  );
+}

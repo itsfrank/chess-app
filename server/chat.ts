@@ -391,9 +391,21 @@ export class ChatService {
 
     try {
       const { message, fen, moves, playerColor, game } = request;
+      let sharedPlies = 0;
+      if (game) {
+        while (sharedPlies < moves.length && game.moves[sharedPlies] === moves[sharedPlies]) {
+          sharedPlies++;
+        }
+      }
+      const onMainline = !game || sharedPlies === moves.length;
+      const sidelineNote =
+        game && !onMainline
+          ? `\n\nSideline note: the board snapshot diverges from the game after ply ${sharedPlies} with ${moves.slice(sharedPlies).join(' ')}.`
+          : '';
       const engineReview = game && this.reviewGame?.(game.moves);
       const review = game
         ? `\n\nGame under review: ${JSON.stringify(game)}` +
+          sidelineNote +
           (engineReview ? `\n\nEngine review of the game: ${JSON.stringify(engineReview)}` : '')
         : '';
       const facts = {
@@ -412,7 +424,7 @@ export class ChatService {
               move: numberedMove(moves.length - 1, moves[moves.length - 1]),
             },
           }),
-          continuation: game?.moves.slice(moves.length),
+          continuation: onMainline ? game?.moves.slice(moves.length) : undefined,
         });
       }
       await prompt(

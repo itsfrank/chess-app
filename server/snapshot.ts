@@ -65,14 +65,14 @@ function parsePlayer(value: unknown): GamePlayer {
   };
 }
 
-/** The game under review: it must be legal, and the position asked about must be part of it. */
-function parseGame(input: unknown, shown: string[]): GameContext {
+/** The game under review: it must be a legal non-empty game; `shown` may be on the mainline or a sideline. */
+function parseGame(input: unknown): GameContext {
   const game = fields(input);
   const moves = game.moves;
   if (
     !Array.isArray(moves) ||
+    !moves.length ||
     moves.length > MAX_HISTORY_MOVES ||
-    shown.some((san, index) => moves[index] !== san) ||
     !GAME_RESULTS.includes(game.result as GameResult)
   ) {
     throw new HttpError(400, 'Invalid game');
@@ -111,6 +111,6 @@ export function parseChatRequest(input: unknown): ChatRequest {
       typeof conversationId === 'string' && /^[\w-]{1,64}$/.test(conversationId)
         ? conversationId
         : undefined,
-    ...(game != null && { game: parseGame(game, moves) }),
+    ...(game != null && { game: parseGame(game) }),
   };
 }
