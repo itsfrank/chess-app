@@ -805,6 +805,9 @@ button.finding-eval {
 .finding-tags i {
   font-style: normal;
 }
+.finding-tags .trigger-tag {
+  color: var(--soft);
+}
 .finding-detail {
   font-size: 13px;
   line-height: 1.5;
@@ -813,6 +816,7 @@ button.finding-eval {
   color: var(--soft);
 }
 .finding-detail .plan button,
+.finding-detail .peer-links button,
 .rule button {
   color: var(--ink);
   text-decoration: underline;
@@ -820,8 +824,25 @@ button.finding-eval {
   text-underline-offset: 3px;
 }
 .finding-detail .plan button:hover,
+.finding-detail .peer-links button:hover,
 .rule button:hover {
   color: var(--gold);
+}
+.rule-filters .filter-pill {
+  padding: 2px 9px;
+  font-size: 12px;
+  color: var(--muted);
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+}
+.rule-filters .filter-pill:hover {
+  color: var(--ink);
+}
+.rule-filters .filter-pill[aria-pressed='true'] {
+  color: var(--canvas);
+  background: var(--gold);
+  border-color: var(--gold);
+  font-weight: 600;
 }
 .rule {
   border-bottom: 1px solid var(--line);
@@ -831,16 +852,53 @@ button.finding-eval {
   font-weight: 600;
   color: var(--ink);
 }
-.rule h3 > span:first-of-type {
+.rule-kind {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--line-strong);
+  color: var(--muted);
+  margin-right: 8px;
+  vertical-align: 1px;
+}
+.rule-kind-pattern {
+  color: var(--gold);
+  border-color: color-mix(in srgb, var(--gold) 45%, transparent);
+}
+.rule-kind-trigger {
+  color: var(--soft);
+}
+.rule-arrow {
   color: var(--faint);
 }
 .rule p {
   font-size: 12.5px;
   color: var(--muted);
 }
+.rule .rule-description {
+  font-size: 12.5px;
+  color: var(--soft);
+}
 .rule strong {
   color: var(--warning);
   font-weight: 600;
+}
+.rule-move-label {
+  color: var(--soft);
+  font-weight: 600;
+}
+.rule-explained-reason {
+  font-size: 11.5px;
+  color: var(--faint);
+}
+.rule-matches button {
+  color: var(--muted);
+}
+.rule-more {
+  color: var(--soft);
 }
 
 /* Games screen */

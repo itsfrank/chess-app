@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Finding } from '../../shared/consolidation';
+import type { Finding, Rule, RuleKind } from '../../shared/consolidation';
 import { isCommon, type Habit } from '../../shared/habits';
 import type { RepertoireReport } from '../../shared/protocol';
 import { formatPath } from '../../shared/repertoire';
@@ -149,7 +149,13 @@ export function ProposalList(
                     {item.habit.followed === 1 ? ' time' : ' times'}
                   </i>
                 )}
-                {finding.peers && <i>usual move ×{finding.peers.count}</i>}
+                {finding.peers && (
+                  <i className={finding.peers.ruleKind !== 'setup' ? 'trigger-tag' : undefined}>
+                    {finding.peers.ruleKind === 'setup'
+                      ? `usual move ×${finding.peers.count}`
+                      : `${finding.peers.reason} ×${finding.peers.count}`}
+                  </i>
+                )}
                 {finding.direct && <i>known position</i>}
                 {finding.openLines > 0 && (
                   <i className="warn">
@@ -193,11 +199,36 @@ export function ProposalList(
                   <p>Not yet checked by Stockfish.</p>
                 )}
                 {finding.peers && (
-                  <p>
-                    With your pieces arranged like this you play {finding.proposed} in{' '}
-                    {finding.peers.count} positions and {finding.current} in{' '}
-                    {finding.peers.currentCount}.
-                  </p>
+                  <div className="finding-peers">
+                    <p>
+                      {finding.peers.ruleKind === 'setup' ? (
+                        <>
+                          With your pieces arranged like this (<em>{finding.peers.reason}</em>) you
+                          play {finding.proposed} in {finding.peers.count} positions and{' '}
+                          {finding.current} in {finding.peers.currentCount}:
+                        </>
+                      ) : (
+                        <>
+                          When <em>{finding.peers.reason}</em> you play {finding.proposed} in{' '}
+                          {finding.peers.count} positions and {finding.current} in{' '}
+                          {finding.peers.currentCount}:
+                        </>
+                      )}
+                    </p>
+                    <p className="peer-links">
+                      {finding.peers.keys.map(peerKey => {
+                        const peerPath = pathOf(report, peerKey);
+                        return (
+                          <button
+                            key={peerKey}
+                            onClick={() => onView({ path: peerPath, current: finding.proposed })}
+                          >
+                            {formatPath(peerPath) || 'First move'}
+                          </button>
+                        );
+                      })}
+                    </p>
+                  </div>
                 )}
                 {finding.direct && (
                   <p>
@@ -349,54 +380,166 @@ export function AuditList({ report, audits, onView }: ListProps & { audits: Audi
   });
 }
 
+const RULE_KIND_LABEL: Record<RuleKind, string> = {
+  pattern: 'Pattern',
+  trigger: 'Trigger',
+  setup: 'Setup',
+};
+
+const MATCH_PREVIEW_LIMIT = 6;
+
+function unexplainedCount(rule: Rule): number {
+  let count = 0;
+  for (const exception of rule.moves.slice(1)) {
+    for (const key of exception.keys) {
+      if (!rule.explained?.[key]) count++;
+    }
+  }
+  return count;
+}
+
 export function RuleList({ report, onView }: ListProps) {
-  // Rules with exceptions first: those are the ones worth a look.
-  const rules = [...report.rules].sort(
-    (a, b) => Number(b.moves.length > 1) - Number(a.moves.length > 1),
-  );
-  return rules.map(rule => {
-    const [usual, ...exceptions] = rule.moves;
-    return (
-      <article key={rule.signature} className="rule">
-        <h3>
-          {rule.setup} <span>→</span> {usual.san}
-          <span className="count">
-            {usual.keys.length} of {rule.total}
-          </span>
-        </h3>
-        {exceptions.map(exception => (
-          <p key={exception.san}>
-            <strong>{exception.san}</strong>
-            {exception.keys.map(key => {
-              const path = pathOf(report, key);
-              const proposal = report.findings.find(
-                finding => finding.key === key && finding.proposed === usual.san,
-              );
-              return (
-                <button
-                  key={key}
-                  onClick={() =>
-                    onView({ path, current: exception.san, proposed: proposal?.proposed })
-                  }
-                >
-                  {formatPath(path) || 'First move'}
-                </button>
-              );
-            })}
-          </p>
-        ))}
-        {!exceptions.length && (
-          <p>
-            <button
-              onClick={() => onView({ path: pathOf(report, usual.keys[0]), current: usual.san })}
-            >
-              No exceptions
-            </button>
-          </p>
-        )}
-      </article>
+  const [filter, setFilter] = useState<'all' | 'opponent' | 'setup'>('all');
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+
+  if (!report.rules.length) {
+    return <p className="repertoire-empty">No recurring rules found in this repertoire yet.</p>;
+  }
+
+  const opponentCount = report.rules.filter(rule => rule.kind !== 'setup').length;
+  const setupCount = report.rules.length - opponentCount;
+
+  // Rules with unexplained exceptions first; then opponent-aware rules; then larger rules.
+  const rules = report.rules
+    .filter(
+      rule =>
+        filter === 'all' || (filter === 'opponent' ? rule.kind !== 'setup' : rule.kind === 'setup'),
+    )
+    .sort(
+      (a, b) =>
+        Number(unexplainedCount(b) > 0) - Number(unexplainedCount(a) > 0) ||
+        Number(a.kind === 'setup') - Number(b.kind === 'setup') ||
+        b.total - a.total ||
+        a.setup.localeCompare(b.setup),
     );
-  });
+
+  return (
+    <>
+      {opponentCount > 0 && (
+        <div className="list-filters rule-filters" role="group" aria-label="Filter rules">
+          {(
+            [
+              ['all', `All (${report.rules.length})`],
+              ['opponent', `Opponent triggers (${opponentCount})`],
+              ['setup', `Setups (${setupCount})`],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              className="filter-pill"
+              aria-pressed={filter === value}
+              onClick={() => setFilter(value)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+      {rules.map(rule => {
+        const [usual, ...exceptions] = rule.moves;
+        const showAllMatches = expanded[rule.signature] || usual.keys.length <= MATCH_PREVIEW_LIMIT;
+        const visibleMatches = showAllMatches
+          ? usual.keys
+          : usual.keys.slice(0, MATCH_PREVIEW_LIMIT - 1);
+        const hiddenMatches = usual.keys.length - visibleMatches.length;
+
+        const unexplained = exceptions
+          .map(exception => ({
+            san: exception.san,
+            keys: exception.keys.filter(key => !rule.explained?.[key]),
+          }))
+          .filter(entry => entry.keys.length > 0);
+        const explained = exceptions
+          .map(exception => ({
+            san: exception.san,
+            keys: exception.keys.filter(key => !!rule.explained?.[key]),
+          }))
+          .filter(entry => entry.keys.length > 0);
+
+        return (
+          <article key={rule.signature} className={`rule rule-${rule.kind}`}>
+            <h3>
+              <span className={`rule-kind rule-kind-${rule.kind}`}>
+                {RULE_KIND_LABEL[rule.kind]}
+              </span>
+              {rule.setup} <span className="rule-arrow">→</span> {usual.san}
+              <span className="count">
+                {usual.keys.length} of {rule.total}
+              </span>
+            </h3>
+            {rule.kind !== 'setup' && <p className="rule-description">{rule.description}</p>}
+            {unexplained.map(exception => (
+              <p key={`exc-${exception.san}`}>
+                <strong>{exception.san}</strong>
+                {exception.keys.map(key => {
+                  const path = pathOf(report, key);
+                  const proposal = report.findings.find(
+                    finding => finding.key === key && finding.proposed === usual.san,
+                  );
+                  return (
+                    <button
+                      key={key}
+                      onClick={() =>
+                        onView({ path, current: exception.san, proposed: proposal?.proposed })
+                      }
+                    >
+                      {formatPath(path) || 'First move'}
+                    </button>
+                  );
+                })}
+              </p>
+            ))}
+            {explained.map(exception => (
+              <p key={`exp-${exception.san}`} className="rule-explained">
+                <span className="rule-move-label">{exception.san}</span>
+                {exception.keys.map(key => {
+                  const path = pathOf(report, key);
+                  const reason = rule.explained?.[key];
+                  return (
+                    <span key={key} className="rule-explained-item">
+                      <button onClick={() => onView({ path, current: exception.san })}>
+                        {formatPath(path) || 'First move'}
+                      </button>
+                      {reason && <span className="rule-explained-reason">({reason.label})</span>}
+                    </span>
+                  );
+                })}
+              </p>
+            ))}
+            <p className="rule-matches">
+              <span className="rule-move-label">{usual.san}</span>
+              {visibleMatches.map(key => {
+                const path = pathOf(report, key);
+                return (
+                  <button key={key} onClick={() => onView({ path, current: usual.san })}>
+                    {formatPath(path) || 'First move'}
+                  </button>
+                );
+              })}
+              {hiddenMatches > 0 && (
+                <button
+                  className="rule-more"
+                  onClick={() => setExpanded(prev => ({ ...prev, [rule.signature]: true }))}
+                >
+                  +{hiddenMatches} more
+                </button>
+              )}
+            </p>
+          </article>
+        );
+      })}
+    </>
+  );
 }
 
 export function AcceptedList(

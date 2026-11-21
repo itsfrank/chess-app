@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, expect, it } from 'vitest';
@@ -139,5 +139,41 @@ it('compares the player’s games with the repertoire and adopts a move they kee
   expect(accepted.habits).toMatchObject({
     exits: { deviation: 1 },
     habits: [{ count: 1, followed: 2, finding: { current: 'Nc3', proposed: 'cxd5' } }],
+  });
+});
+
+it('loads persisted repertoire JSON files and computes opponent-aware rules and findings', () => {
+  const repertoires = service();
+  const id = 'legacy-repertoire-json';
+  const legacyPgn =
+    '1. d4 c5 (1... Nf6 2. Nf3 c5 (2... e6 3. c4 c5 4. d5) 3. d5) (1... e6 2. Nf3 c5 3. d5) 2. c4 *';
+  writeFileSync(
+    join(dir, `${id}.json`),
+    JSON.stringify({
+      id,
+      name: 'Legacy White',
+      side: 'white',
+      pgn: legacyPgn,
+      importedAt: '2026-01-01T00:00:00.000Z',
+      settings: { ratings: [1200, 1400] },
+      changes: [],
+      dismissed: [],
+    }),
+  );
+
+  const report = repertoires.report(id);
+  expect(report.name).toBe('Legacy White');
+  expect(
+    report.rules.find(rule => rule.signature === 'pattern:pawn-challenge:c5>d4'),
+  ).toMatchObject({
+    kind: 'pattern',
+    total: 4,
+  });
+  expect(
+    report.findings.find(item => item.current === 'c4' && item.proposed === 'd5')?.peers,
+  ).toMatchObject({
+    count: 3,
+    currentCount: 1,
+    ruleKind: 'pattern',
   });
 });

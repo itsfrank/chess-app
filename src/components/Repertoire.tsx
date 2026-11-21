@@ -85,6 +85,7 @@ export function RepertoireScreen({ modeSwitch }: { modeSwitch: ReactNode }) {
         // A saving that depends on lines not yet prepared is only an upper bound.
         Number(a.finding.openLines > 0) - Number(b.finding.openLines > 0) ||
         b.saved - a.saved ||
+        (b.finding.peers?.count ?? 0) - (a.finding.peers?.count ?? 0) ||
         b.reach - a.reach,
     );
   }, [report, judge]);

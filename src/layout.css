@@ -392,6 +392,15 @@ main.repertoire {
   padding: 0;
   list-style: none;
 }
+.finding-peers {
+  display: grid;
+  gap: 4px;
+}
+.peer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 12px;
+}
 .finding-actions {
   display: flex;
   flex-wrap: wrap;
@@ -405,10 +414,22 @@ main.repertoire {
   display: flex;
   flex-wrap: wrap;
   gap: 2px 12px;
+  margin-top: 4px;
   padding-left: 16px;
 }
-.rule strong {
+.rule .rule-description {
+  display: block;
+  padding-left: 0;
+  margin-top: 2px;
+}
+.rule strong,
+.rule .rule-move-label {
   min-width: 52px;
+}
+.rule-explained-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
 }
 .mode-switch {
   display: flex;
