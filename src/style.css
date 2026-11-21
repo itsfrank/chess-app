@@ -1300,3 +1300,63 @@ button.finding-eval {
   color: var(--ink);
   font-weight: 600;
 }
+
+/* Mistake drills & sparring actions */
+.review-actions,
+.coach-action-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.drill-saved-note {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--gold);
+}
+.drills-empty {
+  display: grid;
+  gap: 12px;
+  justify-items: start;
+}
+.drill-row {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+}
+.drill-row.active,
+.drill-row:hover {
+  background: #ffffff0a;
+}
+.drill-row-main {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 10px;
+  padding: 10px 14px;
+  text-align: left;
+}
+.drill-row-main strong {
+  font-variant-numeric: tabular-nums;
+  color: var(--quality, var(--ink));
+}
+.drill-row-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--soft);
+}
+.drill-due {
+  color: var(--gold);
+}
+.drill-delete {
+  padding: 6px 12px;
+  font-size: 16px;
+  color: var(--faint);
+}
+.drill-delete:hover {
+  color: var(--warning);
+}

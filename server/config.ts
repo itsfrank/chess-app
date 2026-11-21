@@ -14,6 +14,7 @@ export const EVAL_CACHE_FILE = join(DATA_DIR, 'eval-cache.json');
 export const BOOK_CACHE_FILE = join(DATA_DIR, 'book-cache.json');
 export const GAME_EVAL_CACHE_FILE = join(DATA_DIR, 'game-eval-cache.json');
 export const FREQUENCY_CACHE_FILE = join(DATA_DIR, 'frequency-cache.json');
+export const DRILLS_FILE = join(DATA_DIR, 'drills.json');
 
 export const PORT = Number(process.env.PORT || 3001);
 

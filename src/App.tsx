@@ -14,22 +14,27 @@ import { StatusBar } from './components/StatusBar';
 import { useAnalysis } from './hooks/useAnalysis';
 import { useChat } from './hooks/useChat';
 import { useOpponent, type Opponent } from './hooks/useOpponent';
+import type { SparRequest } from './spar';
 
 const NO_ARROWS: Annotation[] = [];
 const MOVES_OPEN_KEY = 'chess-app.moves-open';
 
-export function App({ modeSwitch }: { modeSwitch?: ReactNode }) {
+export function App({ modeSwitch, spar }: { modeSwitch?: ReactNode; spar?: SparRequest | null }) {
   /** The live game as SAN from the starting position; every position is derived from it. */
-  const [moves, setMoves] = useState<string[]>([]);
+  const [moves, setMoves] = useState<string[]>(() => (spar ? [...spar.moves] : []));
   /** Number of half-moves shown while browsing history; null when showing the live position. */
   const [reviewPly, setReviewPly] = useState<number | null>(null);
-  const [flipped, setFlipped] = useState(false);
+  const [flipped, setFlipped] = useState(() => spar?.playerColor === 'black');
   /** Null on the analysis board, where the user plays both sides. */
-  const [opponent, setOpponent] = useState<Opponent | null>(null);
+  const [opponent, setOpponent] = useState<Opponent | null>(() =>
+    spar ? { color: spar.playerColor, elo: spar.elo } : null,
+  );
   const [paused, setPaused] = useState(false);
-  const [autoReview, setAutoReview] = useState(true);
-  const [notice, setNotice] = useState(
-    'Drag a piece or select its starting and destination squares.',
+  const [autoReview, setAutoReview] = useState(() => !spar);
+  const [notice, setNotice] = useState(() =>
+    spar
+      ? `Sparring vs Maia3 (${spar.elo})${spar.label ? ` · ${spar.label}` : ''}.`
+      : 'Drag a piece or select its starting and destination squares.',
   );
   /** The companion's arrows and the position they were drawn for. */
   const [annotation, setAnnotation] = useState<{ fen: string; arrows: Annotation[] }>({

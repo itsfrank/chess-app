@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useEffectEvent, useMemo, useState, type ReactNode } from 'react';
 import type { Square } from 'chess.js';
 import { clocksAtPly, formatClock, isTimeTrouble, parseTimeControl } from '../../shared/clock';
-import type { Annotation, ArchivedGame, PlayerColor } from '../../shared/protocol';
+import { nearestOpponentElo } from '../../shared/drills';
+import type {
+  Annotation,
+  ArchivedGame,
+  DrillCard,
+  DrillInput,
+  PlayerColor,
+} from '../../shared/protocol';
 import type { Trace } from '../../shared/habits';
 import {
   coachDebriefPrompt,
@@ -10,8 +17,10 @@ import {
   QUALITIES,
   turningPoints,
   type QualityId,
+  type TurningPoint,
 } from '../../shared/quality';
 import { analysisArrows } from '../analysis';
+import { drills as drillsApi } from '../api';
 import { gamePositions, replay, sanForMove, type PositionInfo, type Promotion } from '../chess';
 import { useAnalysis } from '../hooks/useAnalysis';
 import { useChat } from '../hooks/useChat';
@@ -29,6 +38,7 @@ import {
   stepInLine,
   type ReviewCursor,
 } from '../sideline';
+import type { SparRequest } from '../spar';
 import { AnalysisPanel, EvalBar, evalLabel } from './AnalysisPanel';
 import { Board, type SquareBadge } from './Board';
 import { Chat } from './Chat';
@@ -57,7 +67,12 @@ type SavedLine = { anchor: number; moves: string[]; offset: number; label: strin
  * the board with the companion beside it. Each game has its own conversation,
  * which lasts until another game is chosen.
  */
-export function GamesScreen({ modeSwitch }: { modeSwitch: ReactNode }) {
+export function GamesScreen(props: {
+  modeSwitch: ReactNode;
+  onSpar?: (request: Omit<SparRequest, 'id'>) => void;
+  onDrillsAdded?: (cards: DrillCard[]) => void;
+}) {
+  const { modeSwitch, onSpar, onDrillsAdded } = props;
   const library = useGames();
   const [game, setGame] = useState<ArchivedGame | null>(null);
   const [browsing, setBrowsing] = useState(true);
@@ -78,6 +93,8 @@ export function GamesScreen({ modeSwitch }: { modeSwitch: ReactNode }) {
       game={game}
       list={browsing || !game ? list : null}
       onBrowse={() => setBrowsing(true)}
+      onSpar={onSpar}
+      onDrillsAdded={onDrillsAdded}
       modeSwitch={modeSwitch}
     />
   );
@@ -88,9 +105,11 @@ function GameReview(props: {
   game: ArchivedGame | null;
   list: ReactNode;
   onBrowse: () => void;
+  onSpar?: (request: Omit<SparRequest, 'id'>) => void;
+  onDrillsAdded?: (cards: DrillCard[]) => void;
   modeSwitch: ReactNode;
 }) {
-  const { game, list, onBrowse, modeSwitch } = props;
+  const { game, list, onBrowse, onSpar, onDrillsAdded, modeSwitch } = props;
   const moves = game?.moves ?? NO_MOVES;
   /** Current position in the game or an exploratory sideline. */
   const [cursor, setCursor] = useState<ReviewCursor>({ ply: 0, sideline: null });
@@ -98,6 +117,8 @@ function GameReview(props: {
   const [savedLines, setSavedLines] = useState<Map<string, SavedLine>>(() => new Map());
   /** Active guided "Think First" review across the player's key turning points; null in free review. */
   const [coachSession, setCoachSession] = useState<CoachSession | null>(null);
+  const [savedDrills, setSavedDrills] = useState<Set<number>>(() => new Set());
+  const [drillNotice, setDrillNotice] = useState<string | null>(null);
   const [flipped, setFlipped] = useState(game?.playerColor === 'black');
   /** The companion's arrows and the position they were drawn for. */
   const [annotation, setAnnotation] = useState({ fen: '', arrows: NO_ARROWS });
@@ -301,6 +322,55 @@ function GameReview(props: {
     }
   };
 
+  const toDrillInput = (point: TurningPoint): DrillInput | null => {
+    if (!game || !point.best) return null;
+    const quality = point.review.quality.id;
+    if (quality !== 'inaccuracy' && quality !== 'mistake' && quality !== 'blunder') return null;
+    return {
+      moves: moves.slice(0, point.index),
+      playerColor: game.playerColor,
+      played: point.played,
+      best: point.best,
+      loss: Number(point.review.loss.toFixed(1)),
+      quality,
+      opening: game.opening,
+      gameUrl: game.url,
+      playedAt: game.playedAt,
+      rating: game[game.playerColor].rating,
+    };
+  };
+
+  const saveTurningPoints = async (points: TurningPoint[]) => {
+    const inputs = points.flatMap(point => toDrillInput(point) ?? []);
+    if (!inputs.length) return;
+    try {
+      const result = await drillsApi.add(inputs);
+      onDrillsAdded?.(result.cards);
+      setSavedDrills(prev => {
+        const next = new Set(prev);
+        for (const point of points) next.add(point.index);
+        return next;
+      });
+      setDrillNotice(
+        result.added.length
+          ? `Saved ${result.added.length} ${result.added.length === 1 ? 'drill' : 'drills'} to queue.`
+          : 'Already in drill queue.',
+      );
+    } catch (err) {
+      setDrillNotice(err instanceof Error ? err.message : 'Could not save drills.');
+    }
+  };
+
+  const sparPosition = (targetMoves: string[], label?: string) => {
+    if (!game || !onSpar) return;
+    onSpar({
+      moves: targetMoves,
+      playerColor: game.playerColor,
+      elo: nearestOpponentElo(game[game.playerColor].rating),
+      label,
+    });
+  };
+
   const playVariation = useCallback<PlayVariation>(
     (sourceFen, variation, step) => {
       let anchor: number;
@@ -500,6 +570,22 @@ function GameReview(props: {
                   <Icon name="flip" size={15} />
                   Flip
                 </button>
+                {game && onSpar && !spoilersHidden && (
+                  <button
+                    type="button"
+                    title="Open this exact position on the Board tab against Maia3"
+                    onClick={() =>
+                      sparPosition(
+                        shownMoves,
+                        shownMoves.length
+                          ? `${game.opening ?? 'Game'} · after ${numberedMove(shownMoves.length - 1, shownMoves[shownMoves.length - 1])}`
+                          : (game.opening ?? 'Game start'),
+                      )
+                    }
+                  >
+                    Spar vs Maia3
+                  </button>
+                )}
                 {game && (
                   <a href={game.url} target="_blank" rel="noreferrer">
                     chess.com ↗
@@ -535,6 +621,17 @@ function GameReview(props: {
                         setCoachSession(null);
                         selectMainlinePly(plyIndex);
                       }}
+                      onSaveDrill={point => void saveTurningPoints([point])}
+                      isDrillSaved={index => savedDrills.has(index)}
+                      onSparPoint={
+                        onSpar
+                          ? point =>
+                              sparPosition(
+                                moves.slice(0, point.index),
+                                `${game.opening ?? 'Game'} · before ${numberedMove(point.index, point.played)}`,
+                              )
+                          : undefined
+                      }
                       onExit={() => setCoachSession(null)}
                     />
                   ) : (
@@ -544,7 +641,9 @@ function GameReview(props: {
                       shown={inSideline ? undefined : marks[mainlinePly - 1]}
                       inSideline={inSideline}
                       turningPointCount={keyMoments.length}
+                      drillNotice={drillNotice}
                       onStartCoachReview={startCoachReview}
+                      onSaveAllDrills={() => void saveTurningPoints(keyMoments)}
                       onExplain={explainMove}
                       onBackToGame={backToGame}
                     />
@@ -637,7 +736,9 @@ function ReviewSummary(props: {
   shown: MoveMark | undefined;
   inSideline: boolean;
   turningPointCount: number;
+  drillNotice: string | null;
   onStartCoachReview: () => void;
+  onSaveAllDrills: () => void;
   /** Asks the companion about the shown move. */
   onExplain: () => void;
   onBackToGame: () => void;
@@ -648,7 +749,9 @@ function ReviewSummary(props: {
     shown,
     inSideline,
     turningPointCount,
+    drillNotice,
     onStartCoachReview,
+    onSaveAllDrills,
     onExplain,
     onBackToGame,
   } = props;
@@ -714,21 +817,34 @@ function ReviewSummary(props: {
                 Explain
               </button>
             </>
+          ) : drillNotice ? (
+            drillNotice
           ) : (
             'Step through the game or drag a piece to explore a sideline.'
           )}
         </p>
         {complete && turningPointCount > 0 && (
-          <button
-            type="button"
-            className="coach-start"
-            title="Walk through your key turning points without engine spoilers first"
-            onClick={onStartCoachReview}
-          >
-            Coach review ({turningPointCount})
-          </button>
+          <div className="review-actions">
+            <button
+              type="button"
+              className="coach-start"
+              title="Walk through your key turning points without engine spoilers first"
+              onClick={onStartCoachReview}
+            >
+              Coach review ({turningPointCount})
+            </button>
+            <button
+              type="button"
+              className="coach-link"
+              title="Save your turning points to the spaced-repetition Drills queue"
+              onClick={onSaveAllDrills}
+            >
+              Save drills
+            </button>
+          </div>
         )}
       </div>
+      {drillNotice && shown && !inSideline && <p className="drill-saved-note">{drillNotice}</p>}
       {complete && stale > 0 && (
         <p className="depth-warning">
           <span>

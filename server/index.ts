@@ -1,7 +1,8 @@
 import { ModelRuntime } from '@earendil-works/pi-coding-agent';
 import { createApp } from './app.ts';
 import { ChatService } from './chat.ts';
-import { CLAUDE_BRIDGE, PORT, SETTINGS_FILE, splitModel } from './config.ts';
+import { CLAUDE_BRIDGE, DRILLS_FILE, PORT, SETTINGS_FILE, splitModel } from './config.ts';
+import { DrillStore } from './drills.ts';
 import { GameReviewService } from './game-review.ts';
 import { MaiaOpponent } from './opponent.ts';
 import { ProfileService } from './profile.ts';
@@ -33,6 +34,7 @@ async function liveServices(gameReview: GameReviewService, profile: ProfileServi
 }
 
 const settings = new SettingsStore(SETTINGS_FILE);
+const drills = new DrillStore(DRILLS_FILE);
 /** Game review uses only Stockfish, so like the repertoires it also works beside a replay. */
 const gameReview = new GameReviewService({ depth: () => settings.current.gameReviewDepth });
 const profile = new ProfileService({ cachedReview: moves => gameReview.cachedReview(moves) });
@@ -42,7 +44,7 @@ const services = replayLog
   : await liveServices(gameReview, profile);
 /** Repertoire analysis uses only Stockfish and Lichess, so it also works beside a replay. */
 const repertoires = new RepertoireService({ depth: () => settings.current.repertoireDepth });
-const server = createApp({ ...services, repertoires, gameReview, profile, settings });
+const server = createApp({ ...services, repertoires, gameReview, profile, drills, settings });
 
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`Chess API: http://127.0.0.1:${PORT}${replayLog ? ' (offline replay)' : ''}`);

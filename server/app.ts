@@ -4,6 +4,7 @@ import type { ServerEvent, SettingsInfo, Totals } from '../shared/protocol.ts';
 import { eventLine, type ChatService } from './chat.ts';
 import { listGames } from './chesscom.ts';
 import { MAX_PGN_CHARS } from './config.ts';
+import { DrillStore } from './drills.ts';
 import { parseReviewRequest, type GameReviewService } from './game-review.ts';
 import { errorMessage, HttpError, readJson, sendJson } from './http.ts';
 import { explore } from './lichess.ts';
@@ -27,6 +28,8 @@ export type AppOptions = {
   gameReview?: GameReviewService;
   profile?: ProfileService;
   /** Kept in memory only when omitted. */
+  drills?: DrillStore;
+  /** Kept in memory only when omitted. */
   settings?: SettingsStore;
 };
 
@@ -37,6 +40,7 @@ const statusOf = (error: unknown, fallback: number) =>
 export function createApp(options: AppOptions): Server {
   const { lifetime, chat, replay, opponent, repertoires, gameReview, profile } = options;
   const settings = options.settings ?? new SettingsStore();
+  const drills = options.drills ?? new DrillStore();
   const usage = (res: ServerResponse) =>
     sendJson(res, 200, { lifetime: replay?.initialLifetime ?? lifetime });
 
@@ -151,6 +155,18 @@ export function createApp(options: AppOptions): Server {
       throw new HttpError(404, 'Not found');
     });
 
+  /** `/api/drills`, `/api/drills/:id`, and `/api/drills/:id/review`. */
+  const drillRoutes = (req: IncomingMessage, res: ServerResponse) =>
+    json(res, async () => {
+      const [id, action] = req.url!.split('?')[0].split('/').slice(3);
+      const route = `${req.method} ${id ? (action ?? ':id') : ''}`.trim();
+      if (route === 'GET') return drills.list();
+      if (route === 'POST') return drills.addMany(await readJson(req));
+      if (route === 'DELETE :id') return drills.remove(id);
+      if (route === 'POST review') return drills.review(id, await readJson(req));
+      throw new HttpError(404, 'Not found');
+    });
+
   const chatTurn = async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const request = parseChatRequest(await readJson(req));
@@ -184,6 +200,7 @@ export function createApp(options: AppOptions): Server {
     else if (/^GET \/api\/profile(\?|$)/.test(route)) void playerProfile(req, res);
     else if (route === 'POST /api/games/review') void review(req, res);
     else if (/^\/api\/repertoires(\/|$)/.test(req.url ?? '')) void repertoire(req, res);
+    else if (/^\/api\/drills(\/|$|\?)/.test(req.url ?? '')) void drillRoutes(req, res);
     else res.writeHead(404).end();
   });
 }

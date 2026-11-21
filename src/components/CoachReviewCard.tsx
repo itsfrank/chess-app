@@ -21,9 +21,23 @@ export function CoachReviewCard(props: {
   onReveal: (withAttempt: boolean) => void;
   onNext: () => void;
   onJumpToPoint: (index: number) => void;
+  onSaveDrill?: (point: TurningPoint) => void;
+  isDrillSaved?: (index: number) => boolean;
+  onSparPoint?: (point: TurningPoint) => void;
   onExit: () => void;
 }) {
-  const { session, onNoteChange, onResetAttempt, onReveal, onNext, onJumpToPoint, onExit } = props;
+  const {
+    session,
+    onNoteChange,
+    onResetAttempt,
+    onReveal,
+    onNext,
+    onJumpToPoint,
+    onSaveDrill,
+    isDrillSaved,
+    onSparPoint,
+    onExit,
+  } = props;
   const { points, step, phase, attempt, note, hits } = session;
 
   if (step >= points.length) {
@@ -65,6 +79,7 @@ export function CoachReviewCard(props: {
   const sideToMove = point.index % 2 === 0 ? 'White' : 'Black';
   const isLast = step === points.length - 1;
   const matchedBest = Boolean(attempt && point.best && attempt === point.best);
+  const saved = isDrillSaved?.(point.index) ?? false;
 
   return (
     <section className="coach-card" aria-label="Guided coach review">
@@ -150,9 +165,23 @@ export function CoachReviewCard(props: {
             )}
           </p>
           <div className="coach-actions">
-            <span className="coach-hint">
-              Ask a follow-up or drag pieces to test ideas before moving on.
-            </span>
+            <div className="coach-action-group">
+              {onSaveDrill && point.best && (
+                <button
+                  type="button"
+                  className="coach-link"
+                  disabled={saved}
+                  onClick={() => onSaveDrill(point)}
+                >
+                  {saved ? 'Saved to drills' : 'Save drill'}
+                </button>
+              )}
+              {onSparPoint && (
+                <button type="button" className="coach-link" onClick={() => onSparPoint(point)}>
+                  Spar vs Maia3
+                </button>
+              )}
+            </div>
             <button type="button" className="coach-primary" onClick={onNext}>
               {isLast ? 'Finish review' : 'Next moment →'}
             </button>

@@ -88,6 +88,39 @@ export type PlayerProfile = {
   clockHabits: ClockHabits;
 };
 
+/** Payload for saving a mistake from a reviewed game into the spaced-repetition drill queue. */
+export type DrillInput = {
+  /** SAN moves from the starting position leading up to the decision point. */
+  moves: string[];
+  playerColor: PlayerColor;
+  /** The mistake or blunder actually played in the game (SAN). */
+  played: string;
+  /** Stockfish's preferred move in SAN. */
+  best: string;
+  /** Winning-chance drop (0–100). */
+  loss: number;
+  quality: 'inaccuracy' | 'mistake' | 'blunder';
+  opening: string | null;
+  gameUrl: string;
+  playedAt: string;
+  /** Optional player rating in that game, used as the default Maia3 sparring strength. */
+  rating?: number | null;
+};
+
+/** A persisted spaced-repetition mistake drill with SM-2 scheduling fields. */
+export type DrillCard = DrillInput & {
+  id: string;
+  fen: string;
+  createdAt: string;
+  intervalDays: number;
+  ease: number;
+  reps: number;
+  lapses: number;
+  dueAt: string;
+  lastReviewedAt: string | null;
+  lastResult: 'pass' | 'fail' | null;
+};
+
 export type ChatRequest = Snapshot & {
   message: string;
   playerColor: PlayerColor;

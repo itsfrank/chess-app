@@ -2,6 +2,8 @@ import type {
   Analysis,
   PositionEval,
   ChatRequest,
+  DrillCard,
+  DrillInput,
   ExplorerResult,
   GameArchivePage,
   OpponentMove,
@@ -177,4 +179,24 @@ export const repertoires = {
   stop: repertoireAction<object>('stop'),
   /** Fetches the player's chess.com games and compares them with the repertoire. */
   games: repertoireAction<{ username: string }>('games'),
+};
+
+async function drillRequest<T>(method: string, path = '', body?: unknown): Promise<T> {
+  const response = await fetch(`/api/drills${path}`, {
+    method,
+    headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!response.ok) throw await failure(response);
+  return response.json();
+}
+
+/** Spaced-repetition mistake drills built from reviewed games. */
+export const drills = {
+  list: () => drillRequest<DrillCard[]>('GET'),
+  add: (cards: DrillInput[]) =>
+    drillRequest<{ added: DrillCard[]; cards: DrillCard[] }>('POST', '', { cards }),
+  review: (id: string, solved: boolean) =>
+    drillRequest<DrillCard>('POST', `/${id}/review`, { solved }),
+  remove: (id: string) => drillRequest<{ removed: boolean }>('DELETE', `/${id}`),
 };
