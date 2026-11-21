@@ -4,13 +4,14 @@ import { ChatService } from './chat.ts';
 import { CLAUDE_BRIDGE, PORT, SETTINGS_FILE, splitModel } from './config.ts';
 import { GameReviewService } from './game-review.ts';
 import { MaiaOpponent } from './opponent.ts';
+import { ProfileService } from './profile.ts';
 import { Replay } from './recording.ts';
 import { RepertoireService } from './repertoires.ts';
 import { SettingsStore } from './settings.ts';
 import { loadTotals } from './usage.ts';
 
 /** Model, engines and conversations for live use; a replay server needs none of them. */
-async function liveServices(gameReview: GameReviewService) {
+async function liveServices(gameReview: GameReviewService, profile: ProfileService) {
   const modelRuntime = await ModelRuntime.create();
   // Not fatal: the model can be changed in the settings, which need the backend running.
   const { provider, id } = splitModel(settings.current.model);
@@ -24,7 +25,8 @@ async function liveServices(gameReview: GameReviewService) {
       modelRuntime,
       settings,
       lifetime,
-      reviewGame: moves => gameReview.summary(moves),
+      reviewGame: game => gameReview.summary(game.moves, game.clocks, game.timeControl),
+      playerProfile: () => profile.cachedDigest(settings.current.chesscomUsername),
     }),
     opponent: new MaiaOpponent(),
   };
@@ -33,13 +35,14 @@ async function liveServices(gameReview: GameReviewService) {
 const settings = new SettingsStore(SETTINGS_FILE);
 /** Game review uses only Stockfish, so like the repertoires it also works beside a replay. */
 const gameReview = new GameReviewService({ depth: () => settings.current.gameReviewDepth });
+const profile = new ProfileService({ cachedReview: moves => gameReview.cachedReview(moves) });
 const replayLog = process.env.REPLAY_LOG;
 const services = replayLog
   ? { lifetime: loadTotals(), replay: new Replay(replayLog), chat: undefined, opponent: undefined }
-  : await liveServices(gameReview);
+  : await liveServices(gameReview, profile);
 /** Repertoire analysis uses only Stockfish and Lichess, so it also works beside a replay. */
 const repertoires = new RepertoireService({ depth: () => settings.current.repertoireDepth });
-const server = createApp({ ...services, repertoires, gameReview, settings });
+const server = createApp({ ...services, repertoires, gameReview, profile, settings });
 
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`Chess API: http://127.0.0.1:${PORT}${replayLog ? ' (offline replay)' : ''}`);

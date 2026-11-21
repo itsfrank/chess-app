@@ -37,6 +37,7 @@ it('reads a game from its PGN and drops what is not standard chess', () => {
     timeControl: '600',
     opening: 'Italian Game Giuoco Piano',
     moves: ['e4', 'e5', 'Nf3', 'Nc6'],
+    clocks: [598, 597, 590, 589],
   });
   expect(parseGame(raw(1, { rules: 'chess960' }), 'frk')).toBeNull();
   expect(parseGame(raw(1, { pgn: 'not a game' }), 'frk')).toBeNull();

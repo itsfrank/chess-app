@@ -83,6 +83,17 @@ function parseGame(input: unknown): GameContext {
   } catch {
     throw new HttpError(400, 'Invalid game');
   }
+  const history = board.history();
+  const clocks =
+    Array.isArray(game.clocks) &&
+    game.clocks.length > 0 &&
+    game.clocks.length <= history.length &&
+    game.clocks.every(
+      (seconds): seconds is number =>
+        typeof seconds === 'number' && Number.isFinite(seconds) && seconds >= 0,
+    )
+      ? game.clocks
+      : undefined;
   return {
     white: parsePlayer(game.white),
     black: parsePlayer(game.black),
@@ -92,7 +103,8 @@ function parseGame(input: unknown): GameContext {
     timeControl: line(game.timeControl, 20),
     opening: line(game.opening, 120) || null,
     playedAt: line(game.playedAt, 30),
-    moves: board.history(),
+    moves: history,
+    ...(clocks && { clocks }),
   };
 }
 

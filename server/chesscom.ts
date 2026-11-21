@@ -1,4 +1,5 @@
 import { Chess } from 'chess.js';
+import { parsePgnClocks } from '../shared/clock.ts';
 import type { ArchivedGame, GameArchivePage, GameResult } from '../shared/protocol.ts';
 import { HttpError } from './http.ts';
 
@@ -79,6 +80,7 @@ export function parseGame(raw: RawGame, username: string): ArchivedGame | null {
   const result = headers.Result as GameResult;
   const moves = board.history();
   if (headers.FEN || !moves.length || !['1-0', '0-1', '1/2-1/2'].includes(result)) return null;
+  const clocks = parsePgnClocks(raw.pgn, moves.length);
   const player = (side: Side | undefined) => ({
     name: side?.username ?? '?',
     rating: Number.isFinite(side?.rating) ? side!.rating! : null,
@@ -95,6 +97,7 @@ export function parseGame(raw: RawGame, username: string): ArchivedGame | null {
     timeControl: raw.time_control ?? '',
     opening: openingName(headers.ECOUrl),
     moves,
+    ...(clocks && { clocks }),
   };
 }
 

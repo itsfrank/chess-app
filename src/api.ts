@@ -6,6 +6,7 @@ import type {
   GameArchivePage,
   OpponentMove,
   OpponentRequest,
+  PlayerProfile,
   RepertoireReport,
   RepertoireSummary,
   ServerEvent,
@@ -81,6 +82,18 @@ export async function fetchGames(
 ): Promise<GameArchivePage> {
   const query = new URLSearchParams({ username, ...(before && { before: String(before) }) });
   const response = await fetch(`/api/chesscom/games?${query}`, { signal });
+  if (!response.ok) throw await failure(response);
+  return response.json();
+}
+
+/** Cross-game player profile built from recent games and cached Stockfish reviews. */
+export async function fetchProfile(
+  username: string,
+  refresh: boolean,
+  signal: AbortSignal,
+): Promise<PlayerProfile> {
+  const query = new URLSearchParams({ username, ...(refresh && { refresh: '1' }) });
+  const response = await fetch(`/api/profile?${query}`, { signal });
   if (!response.ok) throw await failure(response);
   return response.json();
 }

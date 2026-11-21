@@ -151,7 +151,8 @@ export class ChatService {
   private readonly settings: SettingsStore;
   /** Shared with the usage endpoint and mutated as turns report usage. */
   private readonly lifetime: Totals;
-  private readonly reviewGame?: (moves: string[]) => unknown;
+  private readonly reviewGame?: (game: NonNullable<ChatRequest['game']>) => unknown;
+  private readonly playerProfile?: () => unknown;
   private readonly conversations = new ConversationStore<Conversation>({
     max: MAX_CONVERSATIONS,
     isBusy: conversation => !!conversation.turn,
@@ -163,9 +164,12 @@ export class ChatService {
     settings: SettingsStore;
     lifetime: Totals;
     /** The engine's review of a finished game, once it is complete. */
-    reviewGame?: (moves: string[]) => unknown;
+    reviewGame?: (game: NonNullable<ChatRequest['game']>) => unknown;
+    /** Compact cross-game player profile digest when cached. */
+    playerProfile?: () => unknown;
   }) {
     this.reviewGame = options.reviewGame;
+    this.playerProfile = options.playerProfile;
     this.modelRuntime = options.modelRuntime;
     this.settings = options.settings;
     this.lifetime = options.lifetime;
@@ -402,11 +406,15 @@ export class ChatService {
         game && !onMainline
           ? `\n\nSideline note: the board snapshot diverges from the game after ply ${sharedPlies} with ${moves.slice(sharedPlies).join(' ')}.`
           : '';
-      const engineReview = game && this.reviewGame?.(game.moves);
+      const engineReview = game && this.reviewGame?.(game);
+      const profileDigest = this.playerProfile?.();
       const review = game
         ? `\n\nGame under review: ${JSON.stringify(game)}` +
           sidelineNote +
           (engineReview ? `\n\nEngine review of the game: ${JSON.stringify(engineReview)}` : '')
+        : '';
+      const profileContext = profileDigest
+        ? `\n\nPlayer profile: ${JSON.stringify(profileDigest)}`
         : '';
       const facts = {
         ...describePosition(fen),
@@ -429,7 +437,7 @@ export class ChatService {
       }
       await prompt(
         `Board snapshot: ${JSON.stringify({ fen, moves, playerColor })}\n\n` +
-          `Board facts: ${JSON.stringify(facts)}${review}\n\nUser: ${message}`,
+          `Board facts: ${JSON.stringify(facts)}${review}${profileContext}\n\nUser: ${message}`,
       );
       // The model sometimes explains in its reasoning, draws arrows and then only captions them.
       if (needsFullAnswer(text, drew) && !cancelled()) {

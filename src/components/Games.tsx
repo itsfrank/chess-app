@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useEffectEvent, useMemo, useState, type ReactNode } from 'react';
 import type { Square } from 'chess.js';
+import { clocksAtPly, formatClock, isTimeTrouble, parseTimeControl } from '../../shared/clock';
 import type { Annotation, ArchivedGame, PlayerColor } from '../../shared/protocol';
 import type { Trace } from '../../shared/habits';
 import {
@@ -35,6 +36,7 @@ import { CoachReviewCard, type CoachSession } from './CoachReviewCard';
 import { Icon } from './Icon';
 import type { Highlight, PlayVariation } from './Message';
 import { HistoryNavigation, MoveList, type MoveMark } from './MoveHistory';
+import { PlayerProfileCard } from './PlayerProfileCard';
 import { StatusBar } from './StatusBar';
 
 const NO_MOVES: string[] = [];
@@ -368,15 +370,35 @@ function GameReview(props: {
     setMovesOpen(!movesOpen);
   };
 
+  const clocks = useMemo(
+    () =>
+      game ? clocksAtPly(game.clocks, game.timeControl, mainlinePly) : { white: null, black: null },
+    [game, mainlinePly],
+  );
+  const baseSeconds = useMemo(
+    () => (game ? (parseTimeControl(game.timeControl)?.base ?? null) : null),
+    [game],
+  );
+
   const seat = (color: PlayerColor) => {
     if (!game) return <strong>{color === 'white' ? 'White' : 'Black'}</strong>;
     const { name, rating } = game[color];
+    const remaining = clocks[color];
+    const low = remaining !== null && isTimeTrouble(remaining, baseSeconds);
     return (
       <>
         <strong>{name}</strong>
         <span className="label">
           {[rating, color, color === game.playerColor && 'you'].filter(Boolean).join(' · ')}
         </span>
+        {remaining !== null && (
+          <span
+            className={`player-clock${low ? ' clock-low' : ''}`}
+            title={low ? 'Time trouble' : 'Clock remaining'}
+          >
+            {formatClock(remaining)}
+          </span>
+        )}
       </>
     );
   };
@@ -750,13 +772,20 @@ function GameList(props: {
   const { library, selected, onSelect, onClose } = props;
   const { username, games, loading, error } = library;
   const { open: openSettings } = useSettings();
+  const [profileRefresh, setProfileRefresh] = useState(0);
 
   return (
     <section className="repertoire-panel games-panel" aria-label="Games">
       <header className="repertoire-header games-form">
         <h2 title="The chess.com username from Settings">{username || 'My games'}</h2>
         {username && (
-          <button disabled={loading} onClick={library.refresh}>
+          <button
+            disabled={loading}
+            onClick={() => {
+              library.refresh();
+              setProfileRefresh(count => count + 1);
+            }}
+          >
             {loading ? 'Loading…' : 'Refresh'}
           </button>
         )}
@@ -767,6 +796,7 @@ function GameList(props: {
           {error}
         </p>
       )}
+      {username && <PlayerProfileCard username={username} refreshKey={profileRefresh} />}
       <div className="repertoire-list">
         {!username ? (
           <p className="repertoire-empty">

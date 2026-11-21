@@ -9,6 +9,7 @@ import { errorMessage, HttpError, readJson, sendJson } from './http.ts';
 import { explore } from './lichess.ts';
 import type { MaiaOpponent } from './opponent.ts';
 import { isAllowedOrigin } from './origin.ts';
+import type { ProfileService } from './profile.ts';
 import type { Replay } from './recording.ts';
 import type { RepertoireService } from './repertoires.ts';
 import { SettingsStore } from './settings.ts';
@@ -24,6 +25,7 @@ export type AppOptions = {
   opponent?: MaiaOpponent;
   repertoires?: RepertoireService;
   gameReview?: GameReviewService;
+  profile?: ProfileService;
   /** Kept in memory only when omitted. */
   settings?: SettingsStore;
 };
@@ -33,7 +35,7 @@ const statusOf = (error: unknown, fallback: number) =>
 
 /** The local HTTP API: usage totals, position analysis, opponent moves, and the streaming chat endpoint. */
 export function createApp(options: AppOptions): Server {
-  const { lifetime, chat, replay, opponent, repertoires, gameReview } = options;
+  const { lifetime, chat, replay, opponent, repertoires, gameReview, profile } = options;
   const settings = options.settings ?? new SettingsStore();
   const usage = (res: ServerResponse) =>
     sendJson(res, 200, { lifetime: replay?.initialLifetime ?? lifetime });
@@ -89,6 +91,15 @@ export function createApp(options: AppOptions): Server {
       const query = new URL(req.url!, 'http://localhost').searchParams;
       const before = query.get('before');
       return listGames(query.get('username') ?? '', before ? Number(before) : undefined, signal);
+    });
+
+  /** `/api/profile?username=…&refresh=1`: cross-game patterns from recent games and cached reviews. */
+  const playerProfile = (req: IncomingMessage, res: ServerResponse) =>
+    json(res, async signal => {
+      if (!profile) throw new HttpError(503, 'Player profile is unavailable');
+      const query = new URL(req.url!, 'http://localhost').searchParams;
+      const username = query.get('username') ?? settings.current.chesscomUsername;
+      return profile.get(username, signal, query.get('refresh') === '1');
     });
 
   /** Streams a game's review as NDJSON: the engine's verdict on each position, and its book depth. */
@@ -170,6 +181,7 @@ export function createApp(options: AppOptions): Server {
     else if (route === 'POST /api/opponent') void opponentMove(req, res);
     else if (route === 'POST /api/chat') void chatTurn(req, res);
     else if (/^GET \/api\/chesscom\/games(\?|$)/.test(route)) void games(req, res);
+    else if (/^GET \/api\/profile(\?|$)/.test(route)) void playerProfile(req, res);
     else if (route === 'POST /api/games/review') void review(req, res);
     else if (/^\/api\/repertoires(\/|$)/.test(req.url ?? '')) void repertoire(req, res);
     else res.writeHead(404).end();

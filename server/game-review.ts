@@ -1,4 +1,12 @@
 import { Chess } from 'chess.js';
+import {
+  formatClock,
+  formatThinkTime,
+  isImpulsiveError,
+  isTimeTrouble,
+  moveThinkTimes,
+  parseTimeControl,
+} from '../shared/clock.ts';
 import { DEFAULT_SETTINGS, type PositionEval } from '../shared/protocol.ts';
 import { positionKey } from '../shared/repertoire.ts';
 import { ERROR_LOSS, numberedMove, reviewGame, type QualityId } from '../shared/quality.ts';
@@ -164,14 +172,31 @@ export class GameReviewService {
     return ply;
   }
 
+  /** Synchronous cached review of `moves`, or null if any position has not been searched yet. */
+  cachedReview(moves: string[]): ReturnType<typeof reviewGame> | null {
+    if (!moves.length) return null;
+    let fens: string[];
+    try {
+      fens = positionsOf(moves);
+    } catch {
+      return null;
+    }
+    const keys = fens.map(positionKey);
+    const evals = keys.map(key => this.evaluator.cached(key));
+    if (evals.some(result => !result)) return null;
+    return reviewGame(moves, evals, this.bookPlies(moves, fens));
+  }
+
   /** The finished review in words for the companion, or null until every position is searched. */
-  summary(moves: string[]) {
+  summary(moves: string[], clocks?: readonly number[], timeControl = '') {
     const fens = positionsOf(moves);
     const keys = fens.map(positionKey);
     const evals = keys.map(key => this.evaluator.cached(key));
     if (evals.some(result => !result)) return null;
     const shallow = keys.some(key => !this.evaluator.current(key));
     const review = reviewGame(moves, evals, this.bookPlies(moves, fens));
+    const thinkTimes = moveThinkTimes(clocks, timeControl);
+    const base = parseTimeControl(timeControl)?.base ?? null;
     const side = ({ accuracy, counts }: typeof review.white) => ({
       accuracy: accuracy === null ? null : Number(accuracy.toFixed(1)),
       ...counts,
@@ -180,6 +205,21 @@ export class GameReviewService {
       review.moves.flatMap((move, index) =>
         move?.quality.id === id ? numberedMove(index, moves[index]) : [],
       );
+    const clockNote = (index: number) => {
+      const remaining = clocks?.[index];
+      if (remaining === undefined) return '';
+      const spent = thinkTimes[index] ?? null;
+      const parts = [
+        spent !== null ? `spent ${formatThinkTime(spent)}` : null,
+        `${formatClock(remaining)} left`,
+      ].filter(Boolean);
+      const tag = isTimeTrouble(remaining, base)
+        ? ' — time trouble'
+        : isImpulsiveError(spent, remaining, base)
+          ? ' — fast/impulsive'
+          : '';
+      return ` (${parts.join(', ')}${tag})`;
+    };
     return {
       engine: shallow
         ? `Stockfish, partly at less than depth ${this.depth()}`
@@ -193,7 +233,7 @@ export class GameReviewService {
       /** Every move that was not at least good, with the mover's winning chances around it. */
       errors: review.moves.flatMap((move, index) =>
         move && move.loss > ERROR_LOSS
-          ? `${numberedMove(index, moves[index])}: ${move.quality.id}, winning chances ${percent(move.before)} to ${percent(move.after)}, engine preferred ${move.best}`
+          ? `${numberedMove(index, moves[index])}: ${move.quality.id}, winning chances ${percent(move.before)} to ${percent(move.after)}, engine preferred ${move.best}${clockNote(index)}`
           : [],
       ),
     };

@@ -31,6 +31,8 @@ export type GameContext = {
   opening: string | null;
   playedAt: string;
   moves: string[];
+  /** Remaining clock seconds for the mover after each ply, parallel to `moves`. */
+  clocks?: number[];
 };
 export const GAME_RESULTS = ['1-0', '0-1', '1/2-1/2'] as const;
 export type GameResult = (typeof GAME_RESULTS)[number];
@@ -49,6 +51,41 @@ export type GameArchivePage = {
   games: ArchivedGame[];
   /** Pass as `before` to get the next page; null when there are no older games. */
   older: number | null;
+};
+
+/** Win/draw/loss counts for a slice of games. */
+export type RecordSplit = { games: number; wins: number; draws: number; losses: number };
+
+/** Performance in one named opening as White or Black. */
+export type OpeningStat = RecordSplit & { name: string; color: PlayerColor };
+
+/** Player mistakes/blunders/inaccuracies bucketed by game phase. */
+export type PhaseErrors = { opening: number; middlegame: number; endgame: number };
+
+/** Player errors broken down by clock situation in games with `[%clk]` data. */
+export type ClockHabits = {
+  timedErrors: number;
+  timeTroubleErrors: number;
+  impulsiveErrors: number;
+  deepThinkErrors: number;
+};
+
+/** Cross-game summary built from recent chess.com games plus any cached Stockfish reviews. */
+export type PlayerProfile = {
+  username: string;
+  generatedAt: string;
+  gamesAnalyzed: number;
+  overall: RecordSplit;
+  white: RecordSplit;
+  black: RecordSplit;
+  timeoutLosses: number;
+  openings: OpeningStat[];
+  weakestOpenings: OpeningStat[];
+  reviewedGames: number;
+  avgAccuracy: { overall: number | null; white: number | null; black: number | null };
+  errorCounts: { inaccuracies: number; mistakes: number; blunders: number };
+  phaseErrors: PhaseErrors;
+  clockHabits: ClockHabits;
 };
 
 export type ChatRequest = Snapshot & {
