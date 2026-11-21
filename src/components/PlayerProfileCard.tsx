@@ -76,7 +76,9 @@ export function PlayerProfileCard(props: { username: string; refreshKey: number 
           aria-expanded={open}
           onClick={() => setOpen(!open)}
         >
-          <span className="label">Your patterns</span>
+          <span className="label">
+            <span aria-hidden="true">{open ? '▾' : '▸'}</span> Your patterns
+          </span>
           <span className="profile-meta">
             Last {profile.gamesAnalyzed} games · {splitText(overall)}
             {avgAccuracy.overall !== null && ` · ${avgAccuracy.overall.toFixed(1)}% acc`}
@@ -132,10 +134,15 @@ export function PlayerProfileCard(props: { username: string; refreshKey: number 
           {profile.weakestOpenings.length > 0 && (
             <p className="profile-note">
               <strong>Leaky openings:</strong>{' '}
-              {profile.weakestOpenings
-                .slice(0, 3)
-                .map(stat => `${stat.name} (${stat.color[0].toUpperCase()} ${splitText(stat)})`)
-                .join(' · ')}
+              {profile.weakestOpenings.slice(0, 3).map((stat, index) => (
+                <span key={`${stat.color}:${stat.name}`}>
+                  {index > 0 && ' · '}
+                  {stat.name}{' '}
+                  <span className="profile-record">
+                    ({stat.color[0].toUpperCase()} {splitText(stat)})
+                  </span>
+                </span>
+              ))}
             </p>
           )}
           {reviewedGames === 0 && (

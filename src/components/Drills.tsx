@@ -19,7 +19,7 @@ import { AnalysisPanel, EvalBar, evalLabel } from './AnalysisPanel';
 import { Board, type SquareBadge } from './Board';
 import { Chat } from './Chat';
 import { Icon } from './Icon';
-import type { Highlight } from './Message';
+import type { Highlight, PlayVariation } from './Message';
 import { StatusBar } from './StatusBar';
 
 const NO_ARROWS: Annotation[] = [];
@@ -94,6 +94,7 @@ export function DrillsScreen(props: {
 
   const updateCard = useCallback(
     (updated: DrillCard) => {
+      setSelectedId(prev => prev ?? updated.id);
       setCards(prev => {
         const next = prev.map(c => (c.id === updated.id ? updated : c));
         onCardsChange(next);
@@ -308,6 +309,44 @@ function DrillWorkspace(props: {
       `Explain ${numberedMove(card.moves.length, card.best)}`,
     );
   };
+
+  const playVariation = useCallback<PlayVariation>(
+    (sourceFen, variation, step) => {
+      if (!card) return;
+      const target = variation.slice(0, step + 1);
+      if (!target.length) return;
+      let prefix: string[];
+      if (sourceFen === card.fen) {
+        prefix = [];
+      } else if (sourceFen === shownFen) {
+        prefix = attempt.extraMoves;
+      } else if (positions.has(sourceFen)) {
+        const offset = Math.max(0, positions.get(sourceFen)!.ply - card.moves.length);
+        prefix = attempt.extraMoves.slice(0, offset);
+      } else {
+        return;
+      }
+      const board = replay([...card.moves, ...prefix]);
+      const played: string[] = [];
+      for (const san of target) {
+        try {
+          const move = board.move(san);
+          if (!move) break;
+          played.push(move.san);
+        } catch {
+          break;
+        }
+      }
+      if (!played.length) return;
+      setAttempt(prev => ({ ...prev, extraMoves: [...prefix, ...played] }));
+    },
+    [card, shownFen, attempt.extraMoves, positions],
+  );
+
+  const playLineFromCurrent = useCallback(
+    (variation: string[], step: number) => playVariation(shownFen, variation, step),
+    [playVariation, shownFen],
+  );
 
   const sparFromDrill = () => {
     if (!card) return;
@@ -628,7 +667,13 @@ function DrillWorkspace(props: {
 
                   {reviewError && <p className="repertoire-error">{reviewError}</p>}
                 </section>
-                {!spoilersHidden && <AnalysisPanel analysis={analysis} fen={shownFen} />}
+                {!spoilersHidden && (
+                  <AnalysisPanel
+                    analysis={analysis}
+                    fen={shownFen}
+                    onPlayLine={playLineFromCurrent}
+                  />
+                )}
               </>
             }
             fen={shownFen}
@@ -637,6 +682,7 @@ function DrillWorkspace(props: {
               const offset = Math.max(0, targetPly - card.moves.length);
               setAttempt(prev => ({ ...prev, extraMoves: prev.extraMoves.slice(0, offset) }));
             }}
+            onPlayVariation={spoilersHidden ? undefined : playVariation}
             onAsk={message =>
               chat.ask(message, { fen: shownFen, moves: shownMoves }, card.playerColor)
             }
