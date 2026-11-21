@@ -1,7 +1,7 @@
 import { Chess } from 'chess.js';
 import { describe, expect, it } from 'vitest';
 import type { Analysis, Evaluation } from '../shared/protocol.ts';
-import { diagnoseMove, gist, passed, winnings } from './diagnosis.ts';
+import { diagnoseMove, gist, opponentIdea, passed, winnings } from './diagnosis.ts';
 
 const cp = (value: number): Evaluation => ({ type: 'cp', value });
 const line = (fen: string, sans: string[], evaluation: Evaluation): Analysis['moves'][number] => {
@@ -39,6 +39,21 @@ describe('diagnosing a move', () => {
     expect(found.best?.wins).toBe('a queen');
     // Qxd2+ would lose the queen to Kxd2, so there was no threat before the move.
     expect(found.threatBefore).toBeUndefined();
+    // The engine's moves and the move played, side by side.
+    expect(found.candidates[0]).toMatch(
+      /^Rxd5: \+15\.00, mover's winning chances \d+%; line Rxd5;/,
+    );
+    expect(found.candidates.at(-1)).toMatch(/^Rd3 \(played\): -15\.00/);
+  });
+
+  it("finds the opponent's idea by letting the side to move pass", async () => {
+    // White to move; if White passed, Black's Qxd2+ would be met by Kxd2: no material in it.
+    const idea = await opponentIdea(FEN, fen => engine(fen));
+    expect(idea?.move).toContain('Qxd2+');
+    expect(idea?.wins).toBeUndefined();
+    expect(
+      await opponentIdea('4k3/8/8/8/8/8/3q4/4K3 w - - 0 1', fen => engine(fen)),
+    ).toBeUndefined();
   });
 
   it('passes the move to the other side, and not while in check', () => {

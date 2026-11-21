@@ -144,6 +144,34 @@ export function featureChange(fromFen: string, toFen: string) {
   return positionalChange(was.map(gist).filter(Boolean), is.map(gist).filter(Boolean));
 }
 
+/** A score in words: "+0.35", or "mate in 3 for Black". */
+const scoreText = (evaluation: Evaluation) =>
+  evaluation.type === 'mate'
+    ? `mate in ${Math.abs(evaluation.value)} for ${evaluation.value > 0 ? 'White' : 'Black'}`
+    : `${evaluation.value >= 0 ? '+' : ''}${(evaluation.value / 100).toFixed(2)}`;
+
+/**
+ * The candidate moves side by side, one line each: the score, the mover's winning chances, the
+ * line, and which positional features it brings about and removes by its end, so that moves the
+ * engine rates alike can be told apart by what they do to the position.
+ */
+export function candidateTable(
+  fen: string,
+  candidates: { san: string; evaluation: Evaluation; line: string[]; played?: boolean }[],
+): string[] {
+  const color = new Chess(fen).turn();
+  return candidates.map(candidate => {
+    let change = { new: [] as string[], gone: [] as string[] };
+    try {
+      change = featureChange(fen, playLine(fen, candidate.line, 8).fen());
+    } catch {
+      // a line the board cannot follow leaves the features unstated
+    }
+    const list = (items: string[]) => items.slice(0, 4).join('; ') || 'nothing notable';
+    return `${candidate.san}${candidate.played ? ' (played)' : ''}: ${scoreText(candidate.evaluation)}, mover's winning chances ${Math.round(chances(candidate.evaluation, color))}%; line ${candidate.line.slice(0, 8).join(' ')}; brings about: ${list(change.new)}; removes: ${list(change.gone)}`;
+  });
+}
+
 export type Category = 'allowed' | 'allowed-mate' | 'threat' | 'chance' | 'missed-mate';
 
 export type Diagnosis = {
@@ -164,6 +192,8 @@ export type Diagnosis = {
   best?: { move: string; line: string[]; wins?: string };
   /** Features that differ between the end of the line after the move and after the engine's choice. */
   positional?: { afterMove: string[]; afterBest: string[] };
+  /** The engine's top three moves and the move played, side by side (see `candidateTable`). */
+  candidates: string[];
 };
 
 type Analyze = (fen: string, moves?: string[]) => Promise<Analysis>;
@@ -191,6 +221,24 @@ export async function diagnoseMove(fen: string, san: string, analyze: Analyze): 
     move: played,
     chances: { before: Math.round(was), after: Math.round(is), lost: Math.round(lost) },
     better: goodMoves(before, color, 5).filter(move => move !== played),
+    candidates: candidateTable(fen, [
+      ...before.moves.slice(0, 3).map(move => ({
+        san: move.san,
+        evaluation: move.evaluation,
+        line: move.continuation,
+        played: move.san === played,
+      })),
+      ...(before.moves.slice(0, 3).some(move => move.san === played)
+        ? []
+        : [
+            {
+              san: played,
+              evaluation: after.evaluation,
+              line: [played, ...(after.moves[0]?.continuation ?? [])],
+              played: true,
+            },
+          ]),
+    ]),
   };
 
   const bestMove = before.moves[0];
@@ -260,4 +308,47 @@ export async function diagnoseMove(fen: string, san: string, analyze: Analyze): 
     result.positional = { afterMove: change.new.slice(0, 6), afterBest: change.gone.slice(0, 6) };
   }
   return result;
+}
+
+/** What the opponent would do with a free move: the plan a move has to meet. */
+export type OpponentIdea = {
+  /** The engine's choice for the opponent if the side to move passed, in words. */
+  move: string;
+  line: string[];
+  /** The evaluation after it, White's perspective. */
+  evaluation: Evaluation;
+  /** What it wins, when it wins material or mates. */
+  wins?: string;
+  /** Positional features its line brings about and removes by its end. */
+  comesAbout: string[];
+  goesAway: string[];
+};
+
+/**
+ * The opponent's idea in `fen`, found by letting the side to move pass and asking the engine
+ * what the other side would play; absent in check, when passing is not possible.
+ */
+export async function opponentIdea(
+  fen: string,
+  analyze: (fen: string) => Promise<Analysis>,
+): Promise<OpponentIdea | undefined> {
+  const pass = passed(fen);
+  if (!pass) return undefined;
+  const result = await analyze(pass);
+  const top = result.moves[0];
+  if (!top) return undefined;
+  const them = new Chess(pass).turn();
+  const end = playLine(pass, top.continuation);
+  const gain = balance(end, them) - balance(new Chess(pass), them);
+  const change = featureChange(fen, playLine(pass, top.continuation, 8).fen());
+  return {
+    move: moveInWords(pass, top.san),
+    line: top.continuation.slice(0, 8),
+    evaluation: top.evaluation,
+    ...(mate(top.evaluation, them)
+      ? { wins: 'a forced mate' }
+      : gain >= 2 && { wins: winnings(new Chess(pass), end, them) }),
+    comesAbout: change.new.slice(0, 5),
+    goesAway: change.gone.slice(0, 5),
+  };
 }

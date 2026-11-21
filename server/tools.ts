@@ -1,4 +1,4 @@
-import type { Square } from 'chess.js';
+import { Chess, type Square } from 'chess.js';
 import { Type } from '@sinclair/typebox';
 import { defineTool } from '@earendil-works/pi-coding-agent';
 import {
@@ -8,7 +8,13 @@ import {
 } from '../shared/annotation-palette.ts';
 import type { Annotation, ServerEvent } from '../shared/protocol.ts';
 import { ENGINE } from './config.ts';
-import { diagnoseMove, featureChange, playLine } from './diagnosis.ts';
+import {
+  candidateTable,
+  diagnoseMove,
+  featureChange,
+  opponentIdea,
+  playLine,
+} from './diagnosis.ts';
 import { describeLine, describePosition, positionalFacts } from './facts.ts';
 import { explore, ratings, speeds } from './lichess.ts';
 import { analyze, type UciTrace } from './stockfish.ts';
@@ -62,7 +68,7 @@ export function createTools(context: ToolContext) {
     defineTool({
       name: 'analyze_position',
       label: 'Stockfish',
-      description: `Evaluate the submitted position and return the top ${ENGINE.multiPV} engine moves, White-perspective scores and continuations, with facts computed from the board: where the pieces stand, what is attacked, and for each line's first moves what the move takes, attacks, uncovers and leaves loose; the position's positional features (pawn structure, files, outposts, bishops, restricted pieces, space, king cover, pawn breaks) and, for each line, which of them come about or go away by its end. Optionally apply hypothetical moves. Set beforeLastMove to start from the position before the last move of the snapshot's history instead: use it to see what else could have been played there, or with moves set to an alternative to see where that leads.`,
+      description: `Evaluate the submitted position and return the top ${ENGINE.multiPV} engine moves, White-perspective scores and continuations, with facts computed from the board: where the pieces stand, what is attacked, and for each line's first moves what the move takes, attacks, uncovers and leaves loose; the position's positional features (pawn structure, files, outposts, bishops, restricted pieces, space, king cover, pawn breaks) and, for each line, which of them come about or go away by its end; the opponent's idea: what the other side would play if the side to move passed, its line and what it would win or change; and the top three moves side by side, each with its score, the mover's winning chances and what its line brings about and removes. Optionally apply hypothetical moves. Set beforeLastMove to start from the position before the last move of the snapshot's history instead: use it to see what else could have been played there, or with moves set to an alternative to see where that leads.`,
       parameters: Type.Object({
         moves: hypotheticalMoves,
         beforeLastMove: Type.Optional(Type.Boolean()),
@@ -71,13 +77,15 @@ export function createTools(context: ToolContext) {
         if (args.beforeLastMove && !context.previousFen)
           throw new Error('The snapshot has no earlier move');
         const start = args.beforeLastMove ? context.previousFen! : context.fen;
-        const result = await analyze(
-          start,
-          args.moves,
-          signal,
-          context.traceUci,
-          context.movetimeMs,
-        );
+        const board = new Chess(start);
+        for (const move of args.moves ?? []) board.move(move);
+        // The opponent's free move is searched alongside, so it costs no extra time.
+        const [result, idea] = await Promise.all([
+          analyze(start, args.moves, signal, context.traceUci, context.movetimeMs),
+          opponentIdea(board.fen(), fen =>
+            analyze(fen, [], signal, context.traceUci, context.movetimeMs),
+          ).catch(() => undefined),
+        ]);
         context.emit({ type: 'analysis', result });
         // The model gets the lines spelled out: what each move takes, attacks and leaves loose.
         return textResult({
@@ -85,6 +93,17 @@ export function createTools(context: ToolContext) {
           position: describePosition(result.fen),
           // The slow-changing features plans are made from, and how each line changes them.
           positional: positionalFacts(result.fen),
+          // What a plan has to meet: the other side's best move if this side passed.
+          ...(idea && { opponentIdea: idea }),
+          // The top lines side by side, by what each does to the position.
+          candidates: candidateTable(
+            result.fen,
+            result.moves.slice(0, 3).map(move => ({
+              san: move.san,
+              evaluation: move.evaluation,
+              line: move.continuation,
+            })),
+          ),
           moves: result.moves.map(candidate => ({
             ...candidate,
             ...describeLine(result.fen, candidate.continuation),
