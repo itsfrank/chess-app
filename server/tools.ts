@@ -107,8 +107,8 @@ export function createTools(context: ToolContext) {
         const start = args.beforeLastMove ? context.previousFen! : context.fen;
         // Three searches run at once; each gets a little longer than a plain analysis.
         const movetime = Math.max(context.movetimeMs, 2000);
-        const result = await diagnoseMove(start, args.move, (fen, moves) =>
-          analyze(fen, moves, signal, context.traceUci, movetime),
+        const result = await diagnoseMove(start, args.move, (fen, moves, multiPV) =>
+          analyze(fen, moves, signal, context.traceUci, movetime, multiPV),
         );
         return textResult(result);
       },

@@ -55,9 +55,9 @@ export const SHORT_REPLY_WORDS = 50;
 export const needsFullAnswer = (reply: string, drewArrows: boolean) =>
   drewArrows && reply.trim().split(/\s+/).filter(Boolean).length < SHORT_REPLY_WORDS;
 
-/** Asks for the answer when the visible reply may be only a caption; "OK" means it is complete. */
+/** Asks for a complete replacement when the visible reply may be only a caption; "OK" means keep it. */
 export const fullAnswerRequest = (reply: string) =>
-  `The user sees only your reply text, not your reasoning or tool calls. So far they have seen only this:\n\n${reply.trim() || '(nothing)'}\n\nIf that already answers their question in full, reply with exactly: OK. Otherwise write the full answer now, as text they will read right after it, without repeating it. Do not call any tools.`;
+  `The user sees only your reply text, not your reasoning or tool calls. So far they have seen only this:\n\n${reply.trim() || '(nothing)'}\n\nIf that already answers their question in full, reply with exactly: OK. Otherwise write the complete replacement answer now (including any arrow links you want to keep), not an addendum. Do not call any tools.`;
 
 /** Gives an agent `systemPrompt` and nothing else: no extensions, skills or context files. */
 export const promptOnly = (systemPrompt: string): ResourceLoader => ({
@@ -428,9 +428,8 @@ export class ChatService {
         held = null;
         recorder.record('full_answer_request', { shown: text, extra });
         if (extra && !/^ok\.?$/i.test(extra)) {
-          const delta = (text.trim() ? '\n\n' : '') + extra;
-          text += delta;
-          conversation.emit({ type: 'text', delta });
+          text = extra;
+          conversation.emit({ type: 'replace_text', text });
         }
       }
       // Claims about the board are checked by the rules, and a reply with false ones is rewritten.

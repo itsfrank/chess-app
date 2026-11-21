@@ -41,9 +41,27 @@ describe('diagnosing a move', () => {
     expect(found.threatBefore).toBeUndefined();
   });
 
-  it('passes the move to the other side, and not while in check', () => {
+  it('nets out what the blundered capture took', async () => {
+    // White: Ke1, Qf3. Black: Ke8, pf7. Qxf7+ loses the queen for a pawn.
+    const fen = '4k3/5p2/8/8/8/5Q2/8/4K3 w - - 0 1';
+    const captureEngine = async (f: string, moves: string[] = []): Promise<Analysis> => {
+      const board = new Chess(f);
+      for (const san of moves) board.move(san);
+      const at = board.fen();
+      if (moves.includes('Qxf7+')) return analysis(at, [line(at, ['Kxf7'], cp(-100))]);
+      if (board.turn() === 'b') return analysis(at, [line(at, ['f6'], cp(900))]);
+      return analysis(at, [line(at, ['Qe4+'], cp(900))]);
+    };
+    const found = await diagnoseMove(fen, 'Qxf7+', captureEngine);
+    expect(found.category).toBe('allowed');
+    expect(found.reply?.wins).toBe('a queen for a pawn');
+  });
+
+  it('passes the move to the other side, and not while in check or stalemate', () => {
     expect(passed(FEN)?.split(' ')[1]).toBe('b');
     expect(passed('4k3/8/8/8/8/8/3q4/4K3 w - - 0 1')).toBeNull();
+    // Stalemate: Black king on a8 with White queen on b6 and king on c7.
+    expect(passed('k7/2K5/1Q6/8/8/8/8/8 b - - 0 1')).toBeNull();
   });
 
   it('nets out what is given back', () => {

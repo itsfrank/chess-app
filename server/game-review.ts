@@ -54,7 +54,9 @@ const lichessBook: BookLoader = async (fen, signal) => {
 };
 
 export type GameReviewOptions = {
-  evaluator?: Pick<Evaluator, 'cached' | 'current' | 'evaluate' | 'release' | 'dispose'>;
+  evaluator?: Pick<Evaluator, 'cached' | 'current' | 'evaluate' | 'release' | 'dispose'> & {
+    concurrency?: number;
+  };
   loadBook?: BookLoader;
   bookFile?: string;
   /** The engine depth to review at, asked for before every search. */
@@ -88,10 +90,10 @@ export class GameReviewService {
   }
 
   /**
-   * Evaluates the game's positions in order, reporting each as soon as it is
-   * known, with whether it comes from a shallower search than is configured
-   * now. Such stored verdicts are used as they are unless `refresh` asks for
-   * them to be searched again. Meanwhile `onBook` hears how many opening
+   * Evaluates the game's positions, reporting cached verdicts at once and
+   * searching the rest in parallel across the evaluator's workers. Stored
+   * verdicts from a shallower search are used as they are unless `refresh` asks
+   * for them to be searched again. Meanwhile `onBook` hears how many opening
    * half-moves are theory each time that number grows.
    */
   async evaluate(
@@ -106,13 +108,30 @@ export class GameReviewService {
     // Book labels are a refinement: without the explorer the review is simply without them.
     const book = this.findBook(moves, fens, signal, onBook).catch(() => {});
     try {
+      const toSearch: number[] = [];
       for (const [ply, fen] of fens.entries()) {
         signal.throwIfAborted();
         const key = positionKey(fen);
         const known = this.evaluator.cached(key);
-        if (known && !refresh && !this.evaluator.current(key)) onEval(ply, known, true);
-        else onEval(ply, await this.evaluator.evaluate(fen, signal), false);
+        if (known && (this.evaluator.current(key) || !refresh)) {
+          onEval(ply, known, !this.evaluator.current(key));
+        } else {
+          toSearch.push(ply);
+        }
       }
+      const workers = Math.max(1, Math.min(this.evaluator.concurrency ?? 1, toSearch.length));
+      let next = 0;
+      await Promise.all(
+        Array.from({ length: workers }, async () => {
+          while (next < toSearch.length) {
+            signal.throwIfAborted();
+            const ply = toSearch[next++];
+            const result = await this.evaluator.evaluate(fens[ply], signal);
+            signal.throwIfAborted();
+            onEval(ply, result, false);
+          }
+        }),
+      );
       await book;
     } finally {
       if (--this.running === 0) this.evaluator.release();

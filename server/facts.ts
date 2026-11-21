@@ -369,7 +369,7 @@ function files(board: Chess, pawns: Pawns): string[] {
 }
 
 /**
- * Squares in the enemy half that a pawn of the side defends and no enemy pawn can ever attack:
+ * Squares on the 4th–6th ranks that a pawn of the side defends and no enemy pawn can ever attack:
  * permanent homes for a knight (or a bishop).
  */
 function outposts(board: Chess, pawns: Pawns, color: Color): string[] {

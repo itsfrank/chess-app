@@ -65,12 +65,13 @@ export async function analyze(
   signal?: AbortSignal,
   trace?: UciTrace,
   movetimeMs = DEFAULT_SETTINGS.analysisSeconds * 1000,
+  multiPV = ENGINE.multiPV,
 ): Promise<Analysis> {
   const board = new Chess(fen);
   for (const move of moves) board.move(move);
   if (board.isGameOver()) return terminalAnalysis(board);
   const position = board.fen();
-  const expected = Math.min(ENGINE.multiPV, board.moves().length);
+  const expected = Math.min(multiPV, board.moves().length);
 
   return new Promise<Analysis>((resolve, reject) => {
     const child = spawn(ENGINE.path, [], { stdio: ['pipe', 'pipe', 'pipe'] });
@@ -111,7 +112,7 @@ export async function analyze(
     output.on('line', line => {
       trace?.('out', line);
       if (line === 'uciok') {
-        send(`setoption name MultiPV value ${ENGINE.multiPV}`);
+        send(`setoption name MultiPV value ${multiPV}`);
         send(`setoption name Threads value ${ENGINE.threads}`);
         send(`setoption name Hash value ${ENGINE.hashMB}`);
         send('isready');

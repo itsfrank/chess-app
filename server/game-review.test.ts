@@ -138,3 +138,28 @@ it('uses verdicts from a shallower search until asked to refresh them', async ()
   expect(await run(true)).toEqual([false, false, false, false, false]);
   expect(log.searched).toBe(10);
 });
+
+it('evaluates uncached positions in parallel up to evaluator.concurrency', async () => {
+  const { evaluator } = fakeEvaluator([30, 30, 35, -120, -110], []);
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const parallel = {
+    ...evaluator,
+    concurrency: 3,
+    evaluate: async (fen: string) => {
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise(resolve => setTimeout(resolve, 15));
+      try {
+        return await evaluator.evaluate(fen);
+      } finally {
+        inFlight--;
+      }
+    },
+  };
+  const service = new GameReviewService({ evaluator: parallel, ...noBook });
+  const plies: number[] = [];
+  await service.evaluate(moves, new AbortController().signal, ply => plies.push(ply));
+  expect(plies.sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 4]);
+  expect(maxInFlight).toBe(3);
+});

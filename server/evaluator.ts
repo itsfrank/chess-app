@@ -51,19 +51,33 @@ function terminalEval(board: Chess): PositionEval {
   };
 }
 
+type Worker = { child: ChildProcessWithoutNullStreams | null; busy: boolean };
+type Job = {
+  fen: string;
+  key: string;
+  depth: number;
+  signal?: AbortSignal;
+  resolve: (result: PositionEval) => void;
+  reject: (error: unknown) => void;
+};
+
 /**
- * Fixed-depth evaluations for many positions: one long-lived Stockfish
- * process, one search at a time, and results kept on disk so a position is
- * searched once per depth. The deepest result for a position is the one used;
- * it is current while it is at least as deep as the configured depth.
+ * Fixed-depth evaluations for many positions: a small pool of long-lived
+ * Stockfish workers searching in parallel, with results kept on disk so each
+ * position is searched once per depth. The deepest result for a position is
+ * the one used; it is current while it is at least as deep as the configured
+ * depth.
  */
 export class Evaluator {
+  /** Number of positions this evaluator can search at once. */
+  readonly concurrency: number;
   /** Everything stored, by position and the depth it was searched at. */
   private cache = new Map<string, PositionEval>();
   /** The deepest result of each position, with the depth it was searched at. */
   private deepest = new Map<string, { depth: number; result: PositionEval }>();
-  private child: ChildProcessWithoutNullStreams | null = null;
-  private queue: Promise<unknown> = Promise.resolve();
+  private workers: Worker[];
+  private pending: Job[] = [];
+  private inFlight = new Map<string, Promise<PositionEval>>();
   private saveTimer: NodeJS.Timeout | null = null;
   private readonly file: string;
   private readonly depthOf: () => number;
@@ -73,10 +87,12 @@ export class Evaluator {
    * `depth` is asked for before every search, so it can follow a setting. With
    * `multiPV` 2 every result also carries the score of the engine's second choice.
    */
-  constructor(file: string, depth: () => number, multiPV = 1) {
+  constructor(file: string, depth: () => number, multiPV = 1, workers = BATCH_ENGINE.workers) {
     this.file = file;
     this.depthOf = depth;
     this.multiPV = multiPV;
+    this.concurrency = Math.max(1, workers);
+    this.workers = Array.from({ length: this.concurrency }, () => ({ child: null, busy: false }));
     try {
       const stored = JSON.parse(readFileSync(file, 'utf8')) as Record<string, PositionEval>;
       for (const [storedKey, result] of Object.entries(stored)) {
@@ -114,40 +130,84 @@ export class Evaluator {
 
   /** Evaluates `fen`, searching only if no stored result is deep enough. */
   evaluate(fen: string, signal?: AbortSignal): Promise<PositionEval> {
+    if (signal?.aborted) return Promise.reject(signal.reason ?? new Error('Evaluation aborted'));
     const key = positionKey(fen);
-    const run = this.queue.then(async () => {
-      signal?.throwIfAborted();
-      if (this.current(key)) return this.cached(key)!;
-      // Fixed for this search, in case the setting changes while it runs.
-      const depth = this.depthOf();
-      const board = new Chess(fen);
-      const result = board.isGameOver() ? terminalEval(board) : await this.search(fen, depth);
+    if (this.current(key)) return Promise.resolve(this.cached(key)!);
+    const depth = this.depthOf();
+    const board = new Chess(fen);
+    if (board.isGameOver()) {
+      const result = terminalEval(board);
       this.remember(key, depth, result);
       this.saveSoon();
-      return result;
+      return Promise.resolve(result);
+    }
+    const existing = this.inFlight.get(key);
+    if (existing) return existing;
+
+    const flight = new Promise<PositionEval>((resolve, reject) => {
+      this.pending.push({ fen, key, depth, signal, resolve, reject });
     });
-    this.queue = run.catch(() => {});
-    return run;
+    this.inFlight.set(key, flight);
+    // Avoid unhandled rejection if a caller drops the handle while the pool drains.
+    flight.catch(() => {});
+    this.pump();
+    return flight;
   }
 
-  private engine(): ChildProcessWithoutNullStreams {
-    if (this.child) return this.child;
+  private pump() {
+    while (this.pending.length) {
+      const worker = this.workers.find(slot => !slot.busy);
+      if (!worker) return;
+      const job = this.pending.shift()!;
+      if (job.signal?.aborted) {
+        this.inFlight.delete(job.key);
+        job.reject(job.signal.reason ?? new Error('Evaluation aborted'));
+        continue;
+      }
+      if (this.current(job.key)) {
+        this.inFlight.delete(job.key);
+        job.resolve(this.cached(job.key)!);
+        continue;
+      }
+      worker.busy = true;
+      void this.search(worker, job.fen, job.depth)
+        .then(
+          result => {
+            this.remember(job.key, job.depth, result);
+            this.saveSoon();
+            this.inFlight.delete(job.key);
+            job.resolve(result);
+          },
+          error => {
+            this.inFlight.delete(job.key);
+            job.reject(error);
+          },
+        )
+        .finally(() => {
+          worker.busy = false;
+          this.pump();
+        });
+    }
+  }
+
+  private engine(worker: Worker): ChildProcessWithoutNullStreams {
+    if (worker.child) return worker.child;
     const child = spawn(ENGINE.path, [], { stdio: ['pipe', 'pipe', 'pipe'] });
     child.stdin.on('error', () => {});
     child.on('error', () => {});
     child.on('exit', () => {
-      if (this.child === child) this.child = null;
+      if (worker.child === child) worker.child = null;
     });
     child.stdin.write(
       `uci\nsetoption name Threads value ${BATCH_ENGINE.threads}\n` +
         `setoption name Hash value ${BATCH_ENGINE.hashMB}\n` +
         `setoption name MultiPV value ${this.multiPV}\n`,
     );
-    return (this.child = child);
+    return (worker.child = child);
   }
 
-  private search(fen: string, depth: number): Promise<PositionEval> {
-    const child = this.engine();
+  private search(worker: Worker, fen: string, depth: number): Promise<PositionEval> {
+    const child = this.engine(worker);
     return new Promise((resolve, reject) => {
       const output = createInterface({ input: child.stdout });
       const lines: string[] = [];
@@ -159,7 +219,7 @@ export class Evaluator {
         if (error) {
           // A hung or broken engine is replaced on the next search.
           child.kill();
-          if (this.child === child) this.child = null;
+          if (worker.child === child) worker.child = null;
           reject(error);
         } else resolve(result!);
       };
@@ -195,15 +255,26 @@ export class Evaluator {
     writeFileSync(this.file, JSON.stringify(Object.fromEntries(this.cache)));
   }
 
-  /** Stops the engine once the running search has finished or failed. */
+  /** Stops idle engines once the running searches have finished or failed. */
   release() {
-    this.child?.stdin.write('quit\n');
-    this.child = null;
+    for (const worker of this.workers) {
+      if (!worker.busy && worker.child) {
+        worker.child.stdin.write('quit\n');
+        worker.child = null;
+      }
+    }
   }
 
   dispose() {
     if (this.saveTimer) this.save();
-    this.child?.kill();
-    this.child = null;
+    for (const job of this.pending.splice(0)) {
+      this.inFlight.delete(job.key);
+      job.reject(new Error('Evaluator disposed'));
+    }
+    for (const worker of this.workers) {
+      worker.child?.kill();
+      worker.child = null;
+      worker.busy = false;
+    }
   }
 }

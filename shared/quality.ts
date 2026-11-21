@@ -30,7 +30,7 @@ export type MoveReview = {
 };
 
 export type SideReview = {
-  /** Null until every move of this side has been evaluated. */
+  /** Running average accuracy across evaluated moves for this side; null when none are evaluated yet. */
   accuracy: number | null;
   counts: Record<QualityId, number>;
 };
@@ -131,7 +131,7 @@ export function reviewGame(
       number
     >;
     for (const review of known) counts[review.quality.id]++;
-    return { accuracy: known.length === own.length ? accuracyOf(known) : null, counts };
+    return { accuracy: known.length ? accuracyOf(known) : null, counts };
   };
   return {
     moves: reviews,

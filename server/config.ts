@@ -66,9 +66,11 @@ export const ENGINE_GRACE_MS = 8500;
  * Repertoire analysis and game review: every position is searched once to a
  * fixed depth, which is a setting, so scores are comparable.
  */
+const batchWorkers = Math.max(1, Math.min(4, Math.floor(availableParallelism() / 2)));
 export const BATCH_ENGINE = {
-  threads: Math.max(1, Math.min(6, availableParallelism() - 2)),
-  hashMB: 128,
+  workers: batchWorkers,
+  threads: Math.max(1, Math.floor(Math.max(1, availableParallelism() - 2) / batchWorkers)),
+  hashMB: 64,
   timeoutMs: 120_000,
 };
 export const MAX_REVIEW_MOVES = 600;
@@ -91,5 +93,5 @@ export const MAX_PGN_CHARS = 2_000_000;
 export const MAX_HISTORY_MOVES = 2000;
 export const MAX_CONVERSATIONS = 10;
 
-/** Whether the companion's replies are checked against the board; `CHESS_CLAIM_CHECK=0` turns it off. */
-export const CLAIM_CHECK = process.env.CHESS_CLAIM_CHECK !== '0';
+/** Whether live replies are checked against the board; opt-in via `CHESS_CLAIM_CHECK=1`. */
+export const CLAIM_CHECK = process.env.CHESS_CLAIM_CHECK === '1';

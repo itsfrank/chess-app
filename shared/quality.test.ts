@@ -103,5 +103,6 @@ it('reviews a game as far as the evaluations go', () => {
   const partial = reviewGame(moves, evals.slice(0, 3));
   expect(partial.done).toBe(2);
   expect(partial.moves[2]).toBeUndefined();
-  expect(partial.white.accuracy).toBeNull();
+  expect(partial.white.accuracy).toBeCloseTo(100, 2);
+  expect(reviewGame(moves, evals.slice(0, 1)).white.accuracy).toBeNull();
 });

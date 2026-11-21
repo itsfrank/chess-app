@@ -100,10 +100,10 @@ export function mate(evaluation: Evaluation, color: Color): boolean {
 export const chances = (evaluation: Evaluation, color: Color) =>
   color === 'w' ? winChance(evaluation) : 100 - winChance(evaluation);
 
-/** The position with the other side to move, as if the side to move had passed; null in check. */
+/** The position with the other side to move, as if the side to move had passed; null in check or game over. */
 export function passed(fen: string): string | null {
   const board = new Chess(fen);
-  if (board.isCheck()) return null;
+  if (board.isCheck() || board.isGameOver()) return null;
   const fields = fen.split(' ');
   fields[1] = fields[1] === 'w' ? 'b' : 'w';
   fields[3] = '-';
@@ -166,7 +166,7 @@ export type Diagnosis = {
   positional?: { afterMove: string[]; afterBest: string[] };
 };
 
-type Analyze = (fen: string, moves?: string[]) => Promise<Analysis>;
+type Analyze = (fen: string, moves?: string[], multiPV?: number) => Promise<Analysis>;
 
 /** Diagnoses `san` played in `fen`, with `analyze` as the engine. */
 export async function diagnoseMove(fen: string, san: string, analyze: Analyze): Promise<Diagnosis> {
@@ -181,8 +181,8 @@ export async function diagnoseMove(fen: string, san: string, analyze: Analyze): 
   const pass = passed(fen);
   const [before, after, threat] = await Promise.all([
     analyze(fen),
-    analyze(fen, [played]),
-    pass ? analyze(pass) : Promise.resolve(null),
+    analyze(fen, [played], 1),
+    pass ? analyze(pass, [], 1) : Promise.resolve(null),
   ]);
   const was = chances(before.evaluation, color);
   const is = chances(after.evaluation, color);
@@ -210,7 +210,7 @@ export async function diagnoseMove(fen: string, san: string, analyze: Analyze): 
     result.reply = {
       move: moveInWords(afterFen, reply.san),
       line: reply.continuation.slice(0, 8),
-      ...(swing >= 2 && { wins: winnings(new Chess(afterFen), replyLine, enemy(color)) }),
+      ...(swing >= 2 && { wins: winnings(start, replyLine, enemy(color)) }),
     };
   }
   const threatMove = threat?.moves[0];
