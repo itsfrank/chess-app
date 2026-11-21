@@ -9,6 +9,7 @@
     "replay": "tsx server/replay.ts",
     "eval": "tsx evals/run.ts",
     "lab": "tsx evals/lab.ts",
+    "shot": "node scripts/board-shot.ts",
     "build": "vite build",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.server.json",
     "lint": "eslint .",

@@ -12,5 +12,5 @@ export default tseslint.config(
     extends: [reactHooks.configs.flat.recommended],
     languageOptions: { globals: globals.browser },
   },
-  { files: ['server/**', '*.config.*'], languageOptions: { globals: globals.node } },
+  { files: ['server/**', 'scripts/**', '*.config.*'], languageOptions: { globals: globals.node } },
 );
