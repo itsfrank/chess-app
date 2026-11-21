@@ -58,3 +58,39 @@ it('renders GFM tables with linked moves, lists and emphasis', () => {
   expect(html).toContain('<ul>');
   expect(html).toContain('<strong>Protect</strong>');
 });
+
+it('links legal multi-move variations and unambiguous single moves while ignoring bare squares', () => {
+  const renderVar = (text: string, position = board.fen(), annotations: Annotation[] = []) =>
+    renderToStaticMarkup(
+      createElement(Markdown, {
+        remarkPlugins: [
+          remarkGfm,
+          [remarkMoveLinks, { fen: position, arrows: annotations, variations: true }],
+        ],
+        children: text,
+      }),
+    );
+
+  // Multi-move variation starting from after 1. e4:
+  const line = renderVar('Try 1... Nf6 2. e5 Nd5 instead.');
+  expect(line).toContain('href="#variation-1/Nf6,e5,Nd5"');
+  expect(line).toContain('href="#variation-2/Nf6,e5,Nd5"');
+  expect(line).toContain('href="#variation-3/Nf6,e5,Nd5"');
+
+  // Variation spanning bold formatting and preserving arrow on the first move:
+  const mixed = renderVar('Play **1... Nf6** 2. e5 **Nd5**', board.fen(), arrows);
+  expect(mixed).toContain('href="#annotation-knight?v=1/Nf6,e5,Nd5"');
+  expect(mixed).toContain('href="#variation-2/Nf6,e5,Nd5"');
+  expect(mixed).toContain('href="#variation-3/Nf6,e5,Nd5"');
+
+  // Bare square without move number stays plain text even when legal (e5 is legal for Black),
+  // while move-numbered pawn pushes and piece moves are linked:
+  const prose = renderVar('Controls the e5 square, so play Nc6 or 1... d5 instead.');
+  expect(prose).toContain('Controls the e5 square');
+  expect(prose).not.toContain('href="#variation-1/e5"');
+  expect(prose).toContain('href="#variation-1/Nc6"');
+  expect(prose).toContain('href="#variation-1/d5"');
+
+  // Illegal moves stay plain text:
+  expect(renderVar('Qxh8 is impossible.')).not.toContain('<a');
+});

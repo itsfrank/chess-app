@@ -79,6 +79,7 @@ main.moves-open {
 .player,
 .board-alert,
 .promotion,
+.sideline-bar,
 .board-toolbar {
   margin-left: var(--gutter);
 }
@@ -102,6 +103,25 @@ main.moves-open {
 .promotion,
 .board-alert {
   padding: 4px 0 8px;
+}
+.sideline-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+  padding: 5px 8px;
+}
+.sideline-moves {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+.sideline-back {
+  flex-shrink: 0;
 }
 .board-toolbar {
   display: flex;

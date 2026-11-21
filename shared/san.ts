@@ -1,6 +1,51 @@
 /** Recognising chess moves written in prose, shared by link rendering and validation. */
 
 export const ANNOTATION_PREFIX = '#annotation-';
+export const VARIATION_PREFIX = '#variation-';
+
+export type VariationLink = { moves: string[]; step: number };
+
+/** Encodes a legal SAN variation and 1-based target step into an internal link href. */
+export function encodeVariation(moves: readonly string[], step: number): string {
+  return `${VARIATION_PREFIX}${step}/${moves.map(encodeURIComponent).join(',')}`;
+}
+
+/** Decodes a `#variation-STEP/SAN1,SAN2,...` href back into its moves and 1-based step. */
+export function decodeVariation(href: string): VariationLink | null {
+  if (!href.startsWith(VARIATION_PREFIX)) return null;
+  const rest = href.slice(VARIATION_PREFIX.length);
+  const slash = rest.indexOf('/');
+  if (slash <= 0) return null;
+  const step = Number(rest.slice(0, slash));
+  const raw = rest.slice(slash + 1);
+  if (!Number.isInteger(step) || step < 1 || !raw) return null;
+  try {
+    const moves = raw.split(',').map(decodeURIComponent).filter(Boolean);
+    if (!moves.length || step > moves.length) return null;
+    return { moves, step };
+  } catch {
+    return null;
+  }
+}
+
+/** Parses an `#annotation-ID` (or shortened `#ID`) href, plus an optional attached `?v=` variation. */
+export function parseAnnotationHref(
+  href: string | undefined,
+): { id: string; variation: VariationLink | null } | null {
+  if (!href) return null;
+  const body = href.startsWith(ANNOTATION_PREFIX)
+    ? href.slice(ANNOTATION_PREFIX.length)
+    : href.startsWith('#') && !href.startsWith(VARIATION_PREFIX)
+      ? href.slice(1)
+      : null;
+  if (!body) return null;
+  const query = body.indexOf('?v=');
+  if (query < 0) return { id: body, variation: null };
+  return {
+    id: body.slice(0, query),
+    variation: decodeVariation(VARIATION_PREFIX + body.slice(query + 3)),
+  };
+}
 
 const SAN = String.raw`(?:O-O-O|O-O|[KQRBN]?[a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?)[+#]?`;
 const WHOLE_SAN = new RegExp(`^${SAN}$`);

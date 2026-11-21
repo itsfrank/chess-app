@@ -1,25 +1,37 @@
-import { useCallback, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useEffectEvent, useMemo, useState, type ReactNode } from 'react';
+import type { Square } from 'chess.js';
 import type { Annotation, ArchivedGame, PlayerColor } from '../../shared/protocol';
 import type { Trace } from '../../shared/habits';
 import { explainPrompt, numberedMove, QUALITIES, type QualityId } from '../../shared/quality';
 import { analysisArrows } from '../analysis';
-import { gamePositions, replay } from '../chess';
+import { gamePositions, replay, sanForMove, type PositionInfo, type Promotion } from '../chess';
 import { useAnalysis } from '../hooks/useAnalysis';
 import { useChat } from '../hooks/useChat';
 import { useGameReview } from '../hooks/useGameReview';
 import { useRepertoireTrace } from '../hooks/useRepertoireTrace';
 import { useSettings } from '../settings';
 import { useGames, type GamesState } from '../hooks/useGames';
+import {
+  activeLineOf,
+  exitSideline,
+  playMoveInReview,
+  playVariationFrom,
+  selectMainline,
+  shownMovesOf,
+  stepInLine,
+  type ReviewCursor,
+} from '../sideline';
 import { AnalysisPanel, EvalBar, evalLabel } from './AnalysisPanel';
 import { Board, type SquareBadge } from './Board';
 import { Chat } from './Chat';
 import { Icon } from './Icon';
-import type { Highlight } from './Message';
+import type { Highlight, PlayVariation } from './Message';
 import { HistoryNavigation, MoveList, type MoveMark } from './MoveHistory';
 import { StatusBar } from './StatusBar';
 
 const NO_MOVES: string[] = [];
 const NO_ARROWS: Annotation[] = [];
+const EDITABLE = 'input, textarea, select, [contenteditable="true"]';
 const MOVES_OPEN_KEY = 'chess-app.games-moves-open';
 /** Column headings that would not fit the companion's width in full. */
 const SHORT_LABELS: Partial<Record<QualityId, string>> = {
@@ -27,6 +39,8 @@ const SHORT_LABELS: Partial<Record<QualityId, string>> = {
   inaccuracy: 'Inacc.',
 };
 const RESULT_TEXT = { '1-0': '1–0', '0-1': '0–1', '1/2-1/2': '½–½' };
+
+type SavedLine = { anchor: number; moves: string[]; offset: number; label: string };
 
 /**
  * The user's chess.com games: a list to choose from, then the chosen game on
@@ -68,8 +82,10 @@ function GameReview(props: {
 }) {
   const { game, list, onBrowse, modeSwitch } = props;
   const moves = game?.moves ?? NO_MOVES;
-  /** Number of half-moves shown. */
-  const [ply, setPly] = useState(0);
+  /** Current position in the game or an exploratory sideline. */
+  const [cursor, setCursor] = useState<ReviewCursor>({ ply: 0, sideline: null });
+  /** Sideline positions visited in this review so chat headings and variations can jump back to them. */
+  const [savedLines, setSavedLines] = useState<Map<string, SavedLine>>(() => new Map());
   const [flipped, setFlipped] = useState(game?.playerColor === 'black');
   /** The companion's arrows and the position they were drawn for. */
   const [annotation, setAnnotation] = useState({ fen: '', arrows: NO_ARROWS });
@@ -77,9 +93,21 @@ function GameReview(props: {
   const [movesOpen, setMovesOpen] = useState(() => localStorage.getItem(MOVES_OPEN_KEY) !== '0');
 
   const positions = useMemo(() => gamePositions(moves), [moves]);
-  const shownMoves = useMemo(() => moves.slice(0, ply), [moves, ply]);
+  const allPositions = useMemo(() => {
+    if (!savedLines.size) return positions;
+    const merged = new Map<string, PositionInfo>(positions);
+    for (const [fen, saved] of savedLines) {
+      if (!merged.has(fen)) merged.set(fen, { ply: saved.anchor, label: saved.label });
+    }
+    return merged;
+  }, [positions, savedLines]);
+
+  const shownMoves = useMemo(() => shownMovesOf(moves, cursor), [moves, cursor]);
   const shownGame = useMemo(() => replay(shownMoves), [shownMoves]);
   const shownFen = shownGame.fen();
+  const activeLine = useMemo(() => activeLineOf(moves, cursor), [moves, cursor]);
+  const inSideline = Boolean(cursor.sideline && cursor.sideline.offset > 0);
+  const mainlinePly = cursor.sideline ? cursor.sideline.anchor : cursor.ply;
 
   const analysis = useAnalysis(shownFen);
   const analysed = useGameReview(moves);
@@ -109,14 +137,14 @@ function GameReview(props: {
     [review, moves],
   );
   const lastMove = shownGame.history({ verbose: true }).at(-1);
-  const shownReview = review.moves[ply - 1];
+  const shownReview = inSideline ? undefined : review.moves[mainlinePly - 1];
   const badge: SquareBadge | undefined =
     lastMove && shownReview
       ? {
           square: lastMove.to,
           glyph: shownReview.quality.glyph,
           className: `quality-${shownReview.quality.id}`,
-          title: marks[ply - 1]!.title,
+          title: marks[mainlinePly - 1]!.title,
         }
       : undefined;
   const showArrows = useCallback(
@@ -129,29 +157,118 @@ function GameReview(props: {
   }, []);
   const chat = useChat({ onArrows: showArrows });
 
-  const selectPly = (next: number) => {
-    setPly(next);
-    setActiveArrow(null);
+  const applyCursor = useCallback(
+    (next: ReviewCursor) => {
+      setCursor(next);
+      setActiveArrow(null);
+      if (next.sideline && next.sideline.offset > 0) {
+        const { anchor, moves: branch, offset } = next.sideline;
+        const fen = replay([...moves.slice(0, anchor), ...branch.slice(0, offset)]).fen();
+        const label = `Line · ${numberedMove(anchor + offset - 1, branch[offset - 1])}`;
+        setSavedLines(previous => {
+          const updated = new Map(previous);
+          updated.set(fen, { anchor, moves: branch, offset, label });
+          return updated;
+        });
+      }
+    },
+    [moves],
+  );
+
+  const selectMainlinePly = useCallback(
+    (next: number) => applyCursor(selectMainline(moves, next)),
+    [moves, applyCursor],
+  );
+  const selectInLine = useCallback(
+    (next: number) => applyCursor(stepInLine(moves, cursor, next)),
+    [moves, cursor, applyCursor],
+  );
+  const backToGame = useCallback(() => applyCursor(exitSideline(cursor)), [cursor, applyCursor]);
+
+  const onEscape = useEffectEvent((event: KeyboardEvent) => {
+    if (event.key !== 'Escape' || !cursor.sideline) return;
+    if ((event.target as HTMLElement).closest(EDITABLE)) return;
+    event.preventDefault();
+    backToGame();
+  });
+  useEffect(() => {
+    const listener = (event: KeyboardEvent) => onEscape(event);
+    window.addEventListener('keydown', listener);
+    return () => window.removeEventListener('keydown', listener);
+  }, []);
+
+  const moveOnBoard = (from: Square, to: Square, promotion?: Promotion) => {
+    if (!game) return false;
+    const san = sanForMove(shownGame, from, to, promotion);
+    if (!san) return false;
+    applyCursor(playMoveInReview(moves, cursor, san));
+    return true;
   };
+
+  const playVariation = useCallback<PlayVariation>(
+    (sourceFen, variation, step) => {
+      let anchor: number;
+      let prefix: string[];
+      if (sourceFen === shownFen) {
+        anchor = cursor.sideline ? cursor.sideline.anchor : cursor.ply;
+        prefix = cursor.sideline ? cursor.sideline.moves.slice(0, cursor.sideline.offset) : [];
+      } else if (positions.has(sourceFen)) {
+        anchor = positions.get(sourceFen)!.ply;
+        prefix = [];
+      } else if (savedLines.has(sourceFen)) {
+        const saved = savedLines.get(sourceFen)!;
+        anchor = saved.anchor;
+        prefix = saved.moves.slice(0, saved.offset);
+      } else {
+        return;
+      }
+      const next = playVariationFrom(moves, anchor, prefix, variation, step);
+      if (next) applyCursor(next);
+    },
+    [shownFen, cursor, positions, savedLines, moves, applyCursor],
+  );
+
+  const playLineFromCurrent = useCallback(
+    (variation: string[], step: number) => playVariation(shownFen, variation, step),
+    [playVariation, shownFen],
+  );
+
+  const selectFen = useCallback(
+    (targetFen: string) => {
+      const mainline = positions.get(targetFen);
+      if (mainline) {
+        selectMainlinePly(mainline.ply);
+        return;
+      }
+      const saved = savedLines.get(targetFen);
+      if (saved) {
+        applyCursor({
+          ply: saved.anchor,
+          sideline: { anchor: saved.anchor, moves: saved.moves, offset: saved.offset },
+        });
+      }
+    },
+    [positions, savedLines, selectMainlinePly, applyCursor],
+  );
+
   /**
    * Steps back to where the shown move was chosen and has the companion compare
    * it with the engine's choice there, where arrows for both make sense.
    */
   const explainMove = () => {
-    const move = review.moves[ply - 1];
-    if (!game || !move) return;
-    const mine = (ply % 2 === 1) === (game.playerColor === 'white');
-    const before = moves.slice(0, ply - 1);
-    selectPly(ply - 1);
+    const move = review.moves[mainlinePly - 1];
+    if (!game || !move || inSideline) return;
+    const mine = (mainlinePly % 2 === 1) === (game.playerColor === 'white');
+    const before = moves.slice(0, mainlinePly - 1);
+    selectMainlinePly(mainlinePly - 1);
     chat.ask(
-      explainPrompt(moves, ply - 1, move, mine),
+      explainPrompt(moves, mainlinePly - 1, move, mine),
       { fen: replay(before).fen(), moves: before },
       game.playerColor,
       game,
-      `Explain ${numberedMove(ply - 1, moves[ply - 1])}`,
+      `Explain ${numberedMove(mainlinePly - 1, moves[mainlinePly - 1])}`,
     );
   };
-  const history = { moves, ply, onSelect: selectPly };
   const toggleMoves = () => {
     localStorage.setItem(MOVES_OPEN_KEY, movesOpen ? '0' : '1');
     setMovesOpen(!movesOpen);
@@ -176,7 +293,9 @@ function GameReview(props: {
   return (
     <main className={`games${movesOpen ? ' moves-open' : ''}`}>
       <div className="workspace">
-        {movesOpen && <MoveList {...history} marks={marks} />}
+        {movesOpen && (
+          <MoveList moves={moves} ply={mainlinePly} onSelect={selectMainlinePly} marks={marks} />
+        )}
         <section className="board-section" aria-label="Game under review">
           <div className="stage">
             <div className="player">{seat(flipped ? 'white' : 'black')}</div>
@@ -184,8 +303,8 @@ function GameReview(props: {
               id="games-board"
               position={shownGame}
               flipped={flipped}
-              interactive={false}
-              onMove={() => false}
+              interactive={!!game}
+              onMove={moveOnBoard}
               arrows={annotation.fen === shownFen ? annotation.arrows : NO_ARROWS}
               activeArrow={activeArrow}
               badge={badge}
@@ -200,11 +319,52 @@ function GameReview(props: {
                 {evalLabel(analysis.engine)}
               </span>
               <strong className="game-status" role="status" title={outcome}>
-                {outcome}
+                {inSideline ? 'Exploring sideline' : outcome}
               </strong>
             </div>
+            {cursor.sideline && (
+              <div className="sideline-bar" role="region" aria-label="Exploratory variation">
+                <span className="label">Line</span>
+                <div className="sideline-moves">
+                  <button
+                    type="button"
+                    className="sideline-anchor"
+                    aria-current={cursor.sideline.offset === 0 ? 'step' : undefined}
+                    title="Branching position in the game"
+                    onClick={() => selectInLine(cursor.sideline!.anchor)}
+                  >
+                    {cursor.sideline.anchor === 0
+                      ? 'Start'
+                      : numberedMove(cursor.sideline.anchor - 1, moves[cursor.sideline.anchor - 1])}
+                  </button>
+                  {cursor.sideline.moves.map((san, index) => (
+                    <button
+                      key={index}
+                      type="button"
+                      aria-current={cursor.sideline!.offset === index + 1 ? 'step' : undefined}
+                      onClick={() => selectInLine(cursor.sideline!.anchor + index + 1)}
+                    >
+                      {numberedMove(cursor.sideline!.anchor + index, san)}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  className="sideline-back"
+                  title="Return to the game (Esc)"
+                  onClick={backToGame}
+                >
+                  Back to game
+                </button>
+              </div>
+            )}
             <div className="board-toolbar">
-              <HistoryNavigation {...history} endLabel="End of game" />
+              <HistoryNavigation
+                moves={activeLine.moves}
+                ply={activeLine.ply}
+                onSelect={selectInLine}
+                endLabel={cursor.sideline ? 'End of line' : 'End of game'}
+              />
               <div className="controls">
                 <button onClick={() => setFlipped(!flipped)}>
                   <Icon name="flip" size={15} />
@@ -235,18 +395,26 @@ function GameReview(props: {
                   <ReviewSummary
                     game={game}
                     analysed={analysed}
-                    shown={marks[ply - 1]}
+                    shown={inSideline ? undefined : marks[mainlinePly - 1]}
+                    inSideline={inSideline}
                     onExplain={explainMove}
+                    onBackToGame={backToGame}
                   />
                   {repertoire && (
-                    <RepertoireNote {...repertoire} moves={moves} onSelectPly={selectPly} />
+                    <RepertoireNote {...repertoire} moves={moves} onSelectPly={selectMainlinePly} />
                   )}
-                  <AnalysisPanel analysis={analysis} fen={shownFen} />
+                  <AnalysisPanel
+                    analysis={analysis}
+                    fen={shownFen}
+                    onPlayLine={playLineFromCurrent}
+                  />
                 </>
               }
               fen={shownFen}
-              positions={positions}
-              onSelectPly={selectPly}
+              positions={allPositions}
+              onSelectPly={selectMainlinePly}
+              onSelectFen={selectFen}
+              onPlayVariation={playVariation}
               onAsk={message =>
                 chat.ask(message, { fen: shownFen, moves: shownMoves }, game.playerColor, game)
               }
@@ -267,7 +435,13 @@ function GameReview(props: {
         lead={modeSwitch}
         fen={shownFen}
         usage={chat.usage}
-        notice={game ? `${game.white.name} against ${game.black.name}. ${outcome}.` : outcome}
+        notice={
+          inSideline
+            ? 'Exploring a sideline. Drag pieces to continue or press Esc to return to the game.'
+            : game
+              ? `${game.white.name} against ${game.black.name}. Drag any piece to explore a sideline.`
+              : outcome
+        }
       />
     </main>
   );
@@ -308,10 +482,12 @@ function ReviewSummary(props: {
   game: ArchivedGame;
   analysed: ReturnType<typeof useGameReview>;
   shown: MoveMark | undefined;
+  inSideline: boolean;
   /** Asks the companion about the shown move. */
   onExplain: () => void;
+  onBackToGame: () => void;
 }) {
-  const { game, analysed, shown, onExplain } = props;
+  const { game, analysed, shown, inSideline, onExplain, onBackToGame } = props;
   const { review, error, retry: onRetry, stale, depth } = analysed;
   const complete = review.done === game.moves.length && !analysed.refreshing;
   return (
@@ -356,6 +532,13 @@ function ReviewSummary(props: {
           `Re-analysing at depth ${depth}… ${stale} positions left`
         ) : !complete ? (
           `Reviewing the game with Stockfish… ${review.done} / ${game.moves.length} moves`
+        ) : inSideline ? (
+          <>
+            Exploring a sideline.{' '}
+            <button type="button" onClick={onBackToGame}>
+              Back to game
+            </button>
+          </>
         ) : shown ? (
           <>
             <span className={shown.className}>{shown.title}</span>{' '}
@@ -367,7 +550,7 @@ function ReviewSummary(props: {
             </button>
           </>
         ) : (
-          'Step through the game to see the verdict on each move.'
+          'Step through the game or drag a piece to explore a sideline.'
         )}
       </p>
       {complete && stale > 0 && (

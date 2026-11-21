@@ -10,7 +10,7 @@ import {
 import { MAX_MESSAGE_LENGTH } from '../../shared/protocol';
 import type { PositionInfo } from '../chess';
 import type { ChatState } from '../hooks/useChat';
-import { Message, type Highlight } from './Message';
+import { Message, type Highlight, type PlayVariation } from './Message';
 
 const EDITABLE = 'input, textarea, select, [contenteditable="true"]';
 const MAX_INPUT_HEIGHT = 110;
@@ -24,16 +24,31 @@ export function Chat(props: {
   analysisPanel: ReactNode;
   /** The position on the board; messages about other positions are dimmed and their links disabled. */
   fen: string;
-  /** The positions of the current game, used to head each exchange with the move it follows. */
+  /** The positions of the current game (and explored sidelines), used to head each exchange. */
   positions: Map<string, PositionInfo>;
   /** Shows the position after `ply` half-moves on the board. */
   onSelectPly: (ply: number) => void;
+  /** Optional FEN-keyed jump, used when sidelines share the conversation alongside the mainline. */
+  onSelectFen?: (fen: string) => void;
+  /** Plays a variation referenced in a message onto the board. */
+  onPlayVariation?: PlayVariation;
   /** Whether every move is reviewed automatically; omitted where no moves are played. */
   coach?: { on: boolean; onChange: (on: boolean) => void };
   onAsk: (message: string) => void;
   onHighlight: Highlight;
 }) {
-  const { chat, analysisPanel, fen, positions, onSelectPly, coach, onAsk, onHighlight } = props;
+  const {
+    chat,
+    analysisPanel,
+    fen,
+    positions,
+    onSelectPly,
+    onSelectFen,
+    onPlayVariation,
+    coach,
+    onAsk,
+    onHighlight,
+  } = props;
   const { status, busy, queued } = chat;
   // A review's own heading already names the move, so its "Played …" line would only repeat it.
   const messages = chat.messages.filter(
@@ -106,7 +121,11 @@ export function Chat(props: {
         {!messages.length && (
           <div className="companion-welcome">
             <p>Ask about this position.</p>
-            <small>Hover a colored move in a reply to highlight its arrow.</small>
+            <small>
+              {onPlayVariation
+                ? 'Hover a colored move for its arrow, or click a move to play it on the board.'
+                : 'Hover a colored move in a reply to highlight its arrow.'}
+            </small>
           </div>
         )}
         {messages.map((message, index) => {
@@ -119,14 +138,24 @@ export function Chat(props: {
                   <button
                     disabled={!position || current}
                     title={position && !current ? 'Show this position on the board' : undefined}
-                    onClick={() => position && onSelectPly(position.ply)}
+                    onClick={() => {
+                      if (!position) return;
+                      if (onSelectFen) onSelectFen(message.fen);
+                      else onSelectPly(position.ply);
+                    }}
                   >
                     {position?.label ?? 'Another line'}
                   </button>
                   {current && <span className="label">On the board</span>}
                 </h3>
               )}
-              <Message message={message} current={current} onHighlight={onHighlight} />
+              <Message
+                message={message}
+                current={current}
+                playable={Boolean(onPlayVariation && (current || position))}
+                onHighlight={onHighlight}
+                onPlayVariation={onPlayVariation}
+              />
             </Fragment>
           );
         })}

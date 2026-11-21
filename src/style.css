@@ -402,6 +402,28 @@ button:disabled {
   color: var(--ink);
   font-weight: 500;
 }
+.engine-line .line-move {
+  margin-right: 4px;
+  padding: 0 2px;
+  border-radius: 2px;
+  color: inherit;
+}
+.engine-line .line-move:hover {
+  color: var(--gold);
+  background: #ffffff0a;
+}
+.explorer-line .explorer-move {
+  justify-self: start;
+  font-weight: 600;
+  color: var(--ink);
+  padding: 0 3px;
+  margin-left: -3px;
+  border-radius: 2px;
+}
+.explorer-line .explorer-move:hover {
+  color: var(--gold);
+  background: #ffffff0a;
+}
 .explorer-line > span {
   color: var(--muted);
   font-size: 12.5px;
@@ -573,6 +595,53 @@ button:disabled {
 }
 .move-reference:disabled {
   opacity: 0.6;
+}
+/* A legal move or variation in prose that plays directly on the review board when clicked. */
+.variation-move {
+  font-style: normal;
+  line-height: 1.2;
+  color: var(--ink);
+  border-bottom: 1px dotted color-mix(in srgb, var(--gold) 55%, transparent);
+}
+.variation-move:hover:not(:disabled) {
+  color: var(--gold);
+  border-bottom-style: solid;
+  border-bottom-color: var(--gold);
+}
+.variation-move:disabled {
+  opacity: 0.65;
+}
+.sideline-bar {
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  background: #1b1814;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+}
+.sideline-moves button {
+  padding: 1px 6px;
+  border-radius: 3px;
+  color: var(--soft);
+}
+.sideline-moves button:hover {
+  color: var(--ink);
+  background: #ffffff0f;
+}
+.sideline-moves button[aria-current] {
+  color: var(--canvas);
+  background: var(--gold);
+  font-weight: 600;
+}
+.sideline-moves .sideline-anchor {
+  color: var(--muted);
+}
+.sideline-back {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.sideline-back:hover {
+  color: var(--gold);
 }
 .latest-button {
   padding: 4px 12px;

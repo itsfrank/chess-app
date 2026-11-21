@@ -32,7 +32,16 @@ export function EvalBar({ score, flipped }: { score: Evaluation | undefined; fli
 }
 
 /** Tabbed panel above the chat: Stockfish's top lines or the most played Lichess moves. */
-export function AnalysisPanel({ analysis, fen }: { analysis: AnalysisState; fen: string }) {
+export function AnalysisPanel({
+  analysis,
+  fen,
+  onPlayLine,
+}: {
+  analysis: AnalysisState;
+  fen: string;
+  /** Plays a suggested line (up to 1-based `step`) onto the board. */
+  onPlayLine?: (moves: string[], step: number) => void;
+}) {
   const { tab, setTab, engine, explorer, retry, showArrows, setShowArrows } = analysis;
   const result = tab === 'engine' ? engine : explorer;
   const id = useId();
@@ -75,9 +84,9 @@ export function AnalysisPanel({ analysis, fen }: { analysis: AnalysisState; fen:
             {tab === 'engine' ? 'Analyzing position…' : 'Loading Lichess moves…'}
           </div>
         ) : tab === 'engine' ? (
-          <EngineLines fen={fen} analysis={engine.data!} />
+          <EngineLines fen={fen} analysis={engine.data!} onPlayLine={onPlayLine} />
         ) : (
-          <ExplorerMoves explorer={explorer.data!} />
+          <ExplorerMoves explorer={explorer.data!} onPlayLine={onPlayLine} />
         )}
       </div>
       <label className="switch-label">
@@ -93,7 +102,15 @@ export function AnalysisPanel({ analysis, fen }: { analysis: AnalysisState; fen:
   );
 }
 
-function EngineLines({ fen, analysis }: { fen: string; analysis: Analysis }) {
+function EngineLines({
+  fen,
+  analysis,
+  onPlayLine,
+}: {
+  fen: string;
+  analysis: Analysis;
+  onPlayLine?: (moves: string[], step: number) => void;
+}) {
   if (!analysis.moves.length)
     return <div className="analysis-message">Game over · no legal moves</div>;
   return analysis.moves.slice(0, SHOWN_LINES).map((line, index) => (
@@ -101,17 +118,35 @@ function EngineLines({ fen, analysis }: { fen: string; analysis: Analysis }) {
       <i className="dot" style={{ background: lineColors[index] }} aria-hidden="true" />
       <b>{scoreText(line.evaluation)}</b>
       <span>
-        {formatLine(fen, line.continuation).map((move, ply) => (
-          <span key={ply} className={ply === 0 ? 'first-move' : undefined}>
-            {move}{' '}
-          </span>
-        ))}
+        {formatLine(fen, line.continuation).map((move, ply) =>
+          onPlayLine ? (
+            <button
+              key={ply}
+              type="button"
+              className={ply === 0 ? 'line-move first-move' : 'line-move'}
+              title="Play this line on the board"
+              onClick={() => onPlayLine(line.continuation, ply + 1)}
+            >
+              {move}
+            </button>
+          ) : (
+            <span key={ply} className={ply === 0 ? 'first-move' : undefined}>
+              {move}{' '}
+            </span>
+          ),
+        )}
       </span>
     </div>
   ));
 }
 
-function ExplorerMoves({ explorer }: { explorer: ExplorerResult }) {
+function ExplorerMoves({
+  explorer,
+  onPlayLine,
+}: {
+  explorer: ExplorerResult;
+  onPlayLine?: (moves: string[], step: number) => void;
+}) {
   return (
     <>
       {explorer.opening && <div className="analysis-opening">{explorer.opening.name}</div>}
@@ -119,7 +154,18 @@ function ExplorerMoves({ explorer }: { explorer: ExplorerResult }) {
         explorer.moves.slice(0, SHOWN_LINES).map((move, index) => (
           <div className="analysis-line explorer-line" key={move.san}>
             <i className="dot" style={{ background: lineColors[index] }} aria-hidden="true" />
-            <b>{move.san}</b>
+            {onPlayLine ? (
+              <button
+                type="button"
+                className="explorer-move"
+                title={`Play ${move.san} on the board`}
+                onClick={() => onPlayLine([move.san], 1)}
+              >
+                {move.san}
+              </button>
+            ) : (
+              <b>{move.san}</b>
+            )}
             <span className="frequency-bar" aria-hidden="true">
               <i style={{ width: `${(move.frequency ?? 0) * 100}%` }} />
             </span>
